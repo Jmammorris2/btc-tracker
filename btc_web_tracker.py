@@ -14,7 +14,7 @@ st.title("🚀 Bitcoin Live Tracker + Polymarket + Self-Fixing AI")
 LOG_FILE = "btc_polymarket_log.csv"
 MODEL_FILE = "btc_predictor_model.pkl"
 
-# ================= PRICE & HISTORY (No API Key) =================
+# ================= PRICE & HISTORY =================
 @st.cache_data(ttl=30)
 def fetch_btc_price():
     try:
@@ -81,4 +81,60 @@ def train_or_load_model(bars_df, markets):
         return None, None
     avg_prob = np.mean([m["implied_prob_%"] for m in markets]) if markets else 50
     feats = prepare_features(bars_df, avg_prob)
-    X = feats[[f"lag_{i}" for i in range(
+    X = feats[[f"lag_{i}" for i in range(1,11)] + ["vol_5", "crowd_sentiment"]]
+    y = feats["target_5min"]
+    
+    model = RandomForestClassifier(n_estimators=150, random_state=42)
+    model.fit(X, y)
+    acc = accuracy_score(y, model.predict(X))
+    joblib.dump(model, MODEL_FILE)
+    return model, round(acc * 100, 1)
+
+def predict_future(model, bars_df, markets):
+    if not model or bars_df.empty: return None
+    avg_prob = np.mean([m["implied_prob_%"] for m in markets]) if markets else 50
+    latest = prepare_features(bars_df, avg_prob).iloc[-1:]
+    X = latest[[f"lag_{i}" for i in range(1,11)] + ["vol_5", "crowd_sentiment"]]
+    prob = model.predict_proba(X)[0][1]
+    return {"5min_up_%": round(prob*100, 1), "direction": "🟢 UP" if prob > 0.5 else "🔴 DOWN"}
+
+def log_data(price, change, markets, pred):
+    row = {"timestamp": datetime.now().isoformat(), "btc_price": price, "change_pct": change}
+    if pred:
+        row["ai_5min"] = pred["5min_up_%"]
+    pd.DataFrame([row]).to_csv(LOG_FILE, mode="a", header=not os.path.exists(LOG_FILE), index=False)
+
+# ================= MAIN APP =================
+price, change = fetch_btc_price()
+col1, col2, col3 = st.columns([2, 1.4, 1])
+
+with col1:
+    if price:
+        st.metric("Current BTC Price", f"${price:,}", f"{change:+.2f}% 24h")
+    else:
+        st.error("Price fetch failed")
+
+polymarket_markets = fetch_polymarket_btc_markets()
+bars_df = fetch_historical_bars()
+model, accuracy = train_or_load_model(bars_df, polymarket_markets)
+
+with col2:
+    st.subheader("📊 Polymarket Crowd")
+    for m in polymarket_markets:
+        st.write(f"• {m['title'][:68]:68} → **{m['implied_prob_%']}%**")
+
+with col3:
+    st.subheader("🤖 AI 5-min Prediction")
+    if model:
+        pred = predict_future(model, bars_df, polymarket_markets)
+        if pred:
+            st.success(f"**Next 5 min: {pred['direction']}** ({pred['5min_up_%']}%)")
+            st.caption(f"Model Accuracy: **{accuracy}%**")
+
+st.subheader("📈 BTC Price Chart")
+if not bars_df.empty:
+    fig = go.Figure(go.Scatter(x=bars_df.index[-500:], y=bars_df["close"][-500:], line=dict(color="#f2a900")))
+    fig.update_layout(height=500, template="plotly_dark")
+    st.plotly_chart(fig, use_container_width=True)
+
+if st.button("🔄 Refresh Now (Live Data + Retrain AI)"):
