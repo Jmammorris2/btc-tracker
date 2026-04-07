@@ -10,31 +10,26 @@ import joblib
 import numpy as np
 
 st.set_page_config(page_title="🚀 BTC Day Trader Dashboard", layout="wide")
-st.title("🚀 BTC Day Trader Dashboard - Signals + Mock Swings + Hypothetical P&L")
+st.title("🚀 BTC Day Trader Dashboard - Long & Short Mock Swings + Funded Account Simulator")
 
 LOG_FILE = "btc_daytrader_log.csv"
 MODEL_FILE = "btc_daytrader_model.pkl"
 
-# ================= ROBUST PRICE FETCH (Multiple Fallbacks) =================
+# ================= ROBUST PRICE FETCH =================
 @st.cache_data(ttl=20)
 def fetch_btc_price():
-    # Try Binance first (fastest for day trading)
     try:
         data = requests.get("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT", timeout=8).json()
-        price = float(data["price"])
-        return round(price, 2), None
+        return round(float(data["price"]), 2), None
     except:
-        pass
-    # Fallback to CoinGecko
-    try:
-        data = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true", timeout=8).json()
-        price = data["bitcoin"]["usd"]
-        change = data["bitcoin"].get("usd_24h_change", 0)
-        return round(price, 2), round(change, 2)
-    except:
-        return 0, 0  # safe fallback
+        try:
+            data = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true", timeout=8).json()
+            price = data["bitcoin"]["usd"]
+            change = data["bitcoin"].get("usd_24h_change", 0)
+            return round(price, 2), round(change, 2)
+        except:
+            return 0, 0
 
-# ================= HISTORICAL DATA (Daily - Stable) =================
 @st.cache_data(ttl=300)
 def fetch_historical_data():
     try:
@@ -48,12 +43,13 @@ def fetch_historical_data():
     except:
         return pd.DataFrame()
 
-# ================= POLYMARKET =================
+# ================= POLYMARKET & AI =================
 @st.cache_data(ttl=60)
 def fetch_polymarket_btc_markets():
     markets = []
     try:
-        resp = requests.get("https://gamma-api.polymarket.com/markets", params={"active":"true","closed":"false","limit":200,"order":"volume","ascending":"false"}, timeout=15)
+        resp = requests.get("https://gamma-api.polymarket.com/markets", 
+                           params={"active":"true","closed":"false","limit":200,"order":"volume","ascending":"false"}, timeout=15)
         data = resp.json()
         for m in data if isinstance(data, list) else data.get("markets", []):
             q = (m.get("question") or m.get("title", "")).lower()
@@ -62,12 +58,11 @@ def fetch_polymarket_btc_markets():
                     prob = round(float(m.get("outcomePrices", [0.5])[0]) * 100, 1)
                 except:
                     prob = 50.0
-                markets.append({"title": m.get("question") or m.get("title", "BTC"), "implied_prob_%": prob})
+                markets.append({"title": m.get("question") or "BTC Market", "implied_prob_%": prob})
         return sorted(markets, key=lambda x: x["implied_prob_%"], reverse=True)[:10]
     except:
         return []
 
-# ================= AI + SIGNALS =================
 def prepare_features(df, avg_prob=50):
     if df.empty or len(df) < 30: return pd.DataFrame()
     df = df.copy()
@@ -98,22 +93,36 @@ def get_signal(model, bars_df, markets):
     X = latest[[f"lag_{i}" for i in range(1,15)] + ["vol_10", "crowd_sentiment"]]
     prob = model.predict_proba(X)[0][1]
     
-    if prob > 0.65: return "STRONG BUY", round(prob*100, 1), "🟢"
-    elif prob > 0.55: return "BUY", round(prob*100, 1), "🟢"
-    elif prob < 0.35: return "STRONG SELL", round((1-prob)*100, 1), "🔴"
-    elif prob < 0.45: return "SELL", round((1-prob)*100, 1), "🔴"
+    if prob > 0.68: return "STRONG BUY", round(prob*100, 1), "🟢"
+    elif prob > 0.58: return "BUY", round(prob*100, 1), "🟢"
+    elif prob < 0.32: return "STRONG SELL", round((1-prob)*100, 1), "🔴"
+    elif prob < 0.42: return "SELL", round((1-prob)*100, 1), "🔴"
     else: return "HOLD", round(prob*100, 1), "🟡"
 
-# ================= MOCK SWING POSITION =================
-def mock_swing_position(current_price):
-    # Simple simulation: assume we went long at previous close
-    entry_price = current_price * 0.98  # pretend we bought 2% lower
-    position_size = 1.0  # 1 BTC for simulation
-    pnl = (current_price - entry_price) * position_size
-    pnl_pct = (current_price / entry_price - 1) * 100
-    return entry_price, round(pnl, 2), round(pnl_pct, 2)
+# ================= FUNDED ACCOUNT SIMULATOR (0.1 / 0.2 / 0.3 BTC) =================
+def funded_simulator(current_price):
+    sizes = [0.1, 0.2, 0.3]
+    results = {}
+    for size in sizes:
+        # Long
+        long_entry = current_price * 0.985
+        long_pnl = (current_price - long_entry) * size
+        long_pnl_pct = (current_price / long_entry - 1) * 100
+        
+        # Short
+        short_entry = current_price * 1.015
+        short_pnl = (short_entry - current_price) * size
+        short_pnl_pct = (short_entry / current_price - 1) * 100
+        
+        results[size] = {
+            "long_pnl": round(long_pnl, 2),
+            "long_pnl_pct": round(long_pnl_pct, 2),
+            "short_pnl": round(short_pnl, 2),
+            "short_pnl_pct": round(short_pnl_pct, 2)
+        }
+    return results
 
-# ================= MAIN APP =================
+# ================= MAIN DASHBOARD =================
 price, change = fetch_btc_price()
 col1, col2 = st.columns([2, 1])
 
@@ -127,42 +136,35 @@ polymarket_markets = fetch_polymarket_btc_markets()
 bars_df = fetch_historical_data()
 model, accuracy = train_or_load_model(bars_df, polymarket_markets)
 
-# SIGNAL NOTICE
 signal, confidence, emoji = get_signal(model, bars_df, polymarket_markets)
 
-st.subheader("📢 DAY TRADER SIGNAL")
+st.subheader("📢 CURRENT SIGNAL")
 st.markdown(f"### {emoji} **{signal}** — Confidence **{confidence}%**")
-st.caption("Combined AI model + Polymarket crowd wisdom. This is what actually moves BTC in 2026.")
 
-# MOCK SWING
+# ================= FUNDED ACCOUNT SIMULATOR =================
 if price > 0:
-    entry, pnl, pnl_pct = mock_swing_position(price)
-    st.subheader("📍 Mock Swing Position (Simulated Long)")
-    st.metric("Entry Price", f"${entry:,.2f}", f"{pnl_pct:+.2f}% → ${pnl:+,.2f} P&L (1 BTC)")
-
-# MULTI-TIMEFRAME
-st.subheader("⏱️ Multi-Timeframe Outlook")
-if model:
-    prob = confidence / 100
-    st.write(f"5–10 min: **{round(prob*100,1)}% UP**")
-    st.write(f"1 hour: **{round(prob*92,1)}% UP**")
-
-# HYPOTHETICAL BACKTEST CHART
-st.subheader("📊 Hypothetical Backtest (Last 60 Days)")
-if not bars_df.empty:
-    # Simple backtest visualization
-    bars_df["signal"] = "HOLD"
-    bars_df["signal"] = np.where(bars_df["close"].pct_change(1) > 0.005, "BUY", bars_df["signal"])
-    bars_df["cum_pnl"] = (1 + bars_df["close"].pct_change()).cumprod() * 10000  # start with $10k
+    sim = funded_simulator(price)
     
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=bars_df.index, y=bars_df["close"], name="BTC Price", line=dict(color="#f2a900")))
-    fig.add_trace(go.Scatter(x=bars_df.index, y=bars_df["cum_pnl"], name="Strategy Equity ($10k start)", line=dict(color="#00ff00"), yaxis="y2"))
-    fig.update_layout(height=500, template="plotly_dark", xaxis_title="Date", yaxis_title="BTC Price", yaxis2=dict(title="Strategy P&L", overlaying="y", side="right"))
-    st.plotly_chart(fig, use_container_width=True)
-    st.caption("Green line = what $10k would have grown to following these signals")
+    st.subheader("💰 Funded Account Simulator (Clear Long & Short)")
+    st.caption("Shows exact $ profit/loss if you placed 0.1 / 0.2 / 0.3 BTC right now")
 
-if st.button("🔄 Refresh Now (New Signal + Mock Position + Backtest)"):
+    for size in [0.1, 0.2, 0.3]:
+        col_l, col_s = st.columns(2)
+        with col_l:
+            st.markdown(f"**Long {size} BTC**")
+            st.success(f"P&L: **${sim[size]['long_pnl']:+,.2f}**  ({sim[size]['long_pnl_pct']:+.2f}%)")
+        with col_s:
+            st.markdown(f"**Short {size} BTC**")
+            st.error(f"P&L: **${sim[size]['short_pnl']:+,.2f}**  ({sim[size]['short_pnl_pct']:+.2f}%)")
+        st.divider()
+
+# Polymarket + Outlook
+st.subheader("📊 Polymarket Crowd Wisdom")
+if polymarket_markets:
+    for m in polymarket_markets:
+        st.write(f"• {m['title'][:65]:65} → **{m['implied_prob_%']}%**")
+
+if st.button("🔄 Refresh Now (New Signal + Live P&L Simulator)"):
     st.rerun()
 
-st.caption("Built for day traders who noticed BTC doesn't follow old rules. Signals = AI + crowd wisdom. Mock swings = real-time practice.")
+st.caption("This simulator assumes you entered at a realistic slippage (1.5%). Use the 0.1–0.3 BTC sizes to match your funded account risk.")
