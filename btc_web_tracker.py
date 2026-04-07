@@ -27,17 +27,20 @@ def fetch_btc_price():
     except:
         return None, None
 
-@st.cache_data(ttl=300)
-def fetch_historical_bars(days=40):
+@st.cache_data(ttl=180)  # Increased cache time
+def fetch_historical_bars(days=30):
     try:
         url = f"https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days={days}&interval=minute"
-        data = requests.get(url, timeout=15).json()
+        data = requests.get(url, timeout=20).json()
+        if "prices" not in data or len(data["prices"]) < 100:
+            return pd.DataFrame()
         df = pd.DataFrame(data["prices"], columns=["timestamp", "close"])
         df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
         df = df.set_index("timestamp")
         df["return_5min"] = df["close"].pct_change(5)
         return df.dropna()
-    except:
+    except Exception as e:
+        st.error(f"Could not load historical data: {str(e)[:100]}")
         return pd.DataFrame()
 
 # ================= POLYMARKET =================
@@ -67,7 +70,7 @@ def fetch_polymarket_btc_markets():
     except:
         return []
 
-# ================= AI FUNCTIONS =================
+# ================= AI FUNCTIONS (unchanged) =================
 def prepare_features(df, avg_prob=50):
     df = df.copy()
     for i in range(1, 11):
@@ -84,7 +87,6 @@ def train_or_load_model(bars_df, markets):
     feats = prepare_features(bars_df, avg_prob)
     X = feats[[f"lag_{i}" for i in range(1,11)] + ["vol_5", "crowd_sentiment"]]
     y = feats["target_5min"]
-    
     model = RandomForestClassifier(n_estimators=150, random_state=42)
     model.fit(X, y)
     acc = accuracy_score(y, model.predict(X))
@@ -141,15 +143,19 @@ with col3:
     else:
         st.info("Collecting more data...")
 
+# ================= CHART SECTION =================
 st.subheader("📈 BTC Price Chart")
 if not bars_df.empty:
-    fig = go.Figure(go.Scatter(x=bars_df.index[-500:], y=bars_df["close"][-500:], line=dict(color="#f2a900")))
-    fig.update_layout(height=500, template="plotly_dark")
+    fig = go.Figure(go.Scatter(x=bars_df.index[-500:], y=bars_df["close"][-500:], 
+                               line=dict(color="#f2a900"), name="BTC Price"))
+    fig.update_layout(height=500, template="plotly_dark", xaxis_title="Time", yaxis_title="Price (USD)")
     st.plotly_chart(fig, use_container_width=True)
+else:
+    st.warning("⚠️ Historical chart is not loading right now. CoinGecko may be slow. Click Refresh in a minute.")
 
 if st.button("🔄 Refresh Now (Live Data + Retrain AI)"):
     pred = predict_future(model, bars_df, polymarket_markets) if model else None
     log_data(price, change, polymarket_markets, pred)
     st.rerun()
 
-st.caption("✅ No API key needed • Data updates on Refresh")
+st.caption("✅ No API key needed • Click Refresh to update everything")
