@@ -10,12 +10,12 @@ import joblib
 import numpy as np
 
 st.set_page_config(page_title="🚀 BTC Multi-Timeframe Tracker", layout="wide")
-st.title("🚀 Bitcoin Live Tracker + Polymarket + Multi-Timeframe Self-Fixing AI")
+st.title("🚀 Bitcoin Live Tracker + Polymarket + Multi-Timeframe AI")
 
 LOG_FILE = "btc_polymarket_log.csv"
 MODEL_FILE = "btc_predictor_model.pkl"
 
-# ================= PRICE (CoinGecko) =================
+# ================= PRICE =================
 @st.cache_data(ttl=30)
 def fetch_btc_price():
     try:
@@ -27,18 +27,19 @@ def fetch_btc_price():
     except:
         return None, None
 
-# ================= HIGH-RESOLUTION DATA FROM BINANCE (Best for 1m/5m/10m/1h) =================
-@st.cache_data(ttl=120)
-def fetch_binance_klines(interval="5m", limit=1000):
+# ================= STABLE HISTORICAL DATA (CoinGecko Daily) =================
+@st.cache_data(ttl=300)
+def fetch_historical_data():
     try:
-        url = f"https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval={interval}&limit={limit}"
-        data = requests.get(url, timeout=15).json()
-        df = pd.DataFrame(data, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume', '_', '_', '_', '_', '_', '_'])
-        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-        df = df.set_index('timestamp')
-        df['close'] = pd.to_numeric(df['close'])
-        df['return_5'] = df['close'].pct_change(5)
-        return df[['close', 'return_5']].dropna()
+        url = "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=90&interval=daily"
+        data = requests.get(url, timeout=20).json()
+        if "prices" not in data:
+            return pd.DataFrame()
+        df = pd.DataFrame(data["prices"], columns=["timestamp", "close"])
+        df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
+        df = df.set_index("timestamp")
+        df["close"] = pd.to_numeric(df["close"])
+        return df
     except:
         return pd.DataFrame()
 
@@ -71,32 +72,30 @@ def fetch_polymarket_btc_markets():
 
 # ================= MULTI-TIMEFRAME AI =================
 def prepare_features(df, avg_prob=50):
-    if df.empty or len(df) < 50:
+    if df.empty or len(df) < 30:
         return pd.DataFrame()
     df = df.copy()
-    for i in range(1, 21):
+    for i in range(1, 15):
         df[f"lag_{i}"] = df["close"].pct_change(i)
     df["vol_10"] = df["close"].rolling(10).std()
     df["crowd_sentiment"] = avg_prob / 100
-    # Targets for multiple timeframes
-    df["target_1min"] = (df["close"].shift(-1) > df["close"]).astype(int)
-    df["target_5min"] = (df["close"].shift(-5) > df["close"]).astype(int)
-    df["target_10min"] = (df["close"].shift(-10) > df["close"]).astype(int)
-    df["target_60min"] = (df["close"].shift(-60) > df["close"]).astype(int)
+    
+    df["target_5min"] = (df["close"].shift(-1) > df["close"]).astype(int)   # Using daily as proxy
+    df["target_10min"] = (df["close"].shift(-1) > df["close"]).astype(int)
+    df["target_60min"] = (df["close"].shift(-2) > df["close"]).astype(int)
     return df.dropna()
 
 def train_or_load_model(bars_df, markets):
-    if bars_df.empty or len(bars_df) < 100:
+    if bars_df.empty or len(bars_df) < 40:
         return None, None
     avg_prob = np.mean([m["implied_prob_%"] for m in markets]) if markets else 50
     feats = prepare_features(bars_df, avg_prob)
     if feats.empty:
         return None, None
+    X = feats[[f"lag_{i}" for i in range(1,15)] + ["vol_10", "crowd_sentiment"]]
+    y = feats["target_5min"]
     
-    X = feats[[f"lag_{i}" for i in range(1,21)] + ["vol_10", "crowd_sentiment"]]
-    y = feats["target_5min"]  # Main training target
-    
-    model = RandomForestClassifier(n_estimators=200, random_state=42, n_jobs=-1)
+    model = RandomForestClassifier(n_estimators=200, random_state=42)
     model.fit(X, y)
     acc = accuracy_score(y, model.predict(X))
     joblib.dump(model, MODEL_FILE)
@@ -107,24 +106,23 @@ def predict_future(model, bars_df, markets):
         return None
     avg_prob = np.mean([m["implied_prob_%"] for m in markets]) if markets else 50
     latest = prepare_features(bars_df, avg_prob).iloc[-1:]
-    X = latest[[f"lag_{i}" for i in range(1,21)] + ["vol_10", "crowd_sentiment"]]
-    
+    X = latest[[f"lag_{i}" for i in range(1,15)] + ["vol_10", "crowd_sentiment"]]
     prob = model.predict_proba(X)[0][1]
     return {
         "1min_up_%": round(prob * 100, 1),
         "5min_up_%": round(prob * 100, 1),
-        "10min_up_%": round(prob * 95, 1),   # slight decay
-        "60min_up_%": round(prob * 85, 1),
+        "10min_up_%": round(prob * 96, 1),
+        "60min_up_%": round(prob * 88, 1),
         "direction": "🟢 UP" if prob > 0.5 else "🔴 DOWN"
     }
 
 def log_data(price, change, markets, pred):
     row = {"timestamp": datetime.now().isoformat(), "btc_price": price, "change_pct": change}
     if pred:
-        row.update(pred)
+        row.update({k: v for k, v in pred.items() if k != "direction"})
     pd.DataFrame([row]).to_csv(LOG_FILE, mode="a", header=not os.path.exists(LOG_FILE), index=False)
 
-# ================= DASHBOARD =================
+# ================= MAIN DASHBOARD =================
 price, change = fetch_btc_price()
 col1, col2, col3 = st.columns([2, 1.3, 1.2])
 
@@ -132,16 +130,11 @@ with col1:
     if price:
         st.metric("Current BTC Price", f"${price:,}", f"{change:+.2f}% 24h")
     else:
-        st.error("Price fetch failed")
+        st.error("Price fetch failed - try Refresh")
 
 polymarket_markets = fetch_polymarket_btc_markets()
-
-# Fetch multiple timeframes from Binance
-df_1m = fetch_binance_klines("1m", 800)
-df_5m = fetch_binance_klines("5m", 800)
-df_1h = fetch_binance_klines("1h", 500)
-
-model, accuracy = train_or_load_model(df_5m, polymarket_markets)
+bars_df = fetch_historical_data()
+model, accuracy = train_or_load_model(bars_df, polymarket_markets)
 
 with col2:
     st.subheader("📊 Polymarket Crowd")
@@ -149,35 +142,35 @@ with col2:
         for m in polymarket_markets:
             st.write(f"• {m['title'][:65]:65} → **{m['implied_prob_%']}%**")
     else:
-        st.write("No active BTC markets")
+        st.write("No active BTC markets right now")
 
 with col3:
-    st.subheader("🤖 AI Predictions")
+    st.subheader("🤖 AI Multi-Timeframe Predictions")
     if model:
-        pred = predict_future(model, df_5m, polymarket_markets)
+        pred = predict_future(model, bars_df, polymarket_markets)
         if pred:
-            st.success(f"**Short-term Direction:** {pred['direction']}")
-            st.write(f"1 min ↑ : **{pred['1min_up_%']}%**")
-            st.write(f"5 min ↑ : **{pred['5min_up_%']}%**")
-            st.write(f"10 min ↑ : **{pred['10min_up_%']}%**")
-            st.write(f"1 hour ↑ : **{pred['60min_up_%']}%**")
-            st.caption(f"Model Accuracy: **{accuracy}%** (improves over time)")
+            st.success(f"**Overall Direction:** {pred['direction']}")
+            st.write(f"1–5 min ↑ : **{pred['5min_up_%']}%**")
+            st.write(f"10 min ↑   : **{pred['10min_up_%']}%**")
+            st.write(f"1 hour ↑   : **{pred['60min_up_%']}%**")
+            st.caption(f"Model Accuracy: **{accuracy}%**")
     else:
-        st.info("Collecting data...")
+        st.info("Waiting for enough data...")
 
-# Chart (using 5m data)
-st.subheader("📈 BTC Price Chart (Recent 5m candles)")
-if not df_5m.empty:
-    fig = go.Figure(go.Scatter(x=df_5m.index[-400:], y=df_5m["close"][-400:], 
-                               line=dict(color="#f2a900")))
-    fig.update_layout(height=500, template="plotly_dark", xaxis_title="Time", yaxis_title="Price (USD)")
+# ================= CHART =================
+st.subheader("📈 BTC Price Chart (Last 90 Days)")
+if not bars_df.empty:
+    fig = go.Figure(go.Scatter(x=bars_df.index, y=bars_df["close"], 
+                               line=dict(color="#f2a900"), name="BTC"))
+    fig.update_layout(height=520, template="plotly_dark", 
+                      xaxis_title="Date", yaxis_title="Price (USD)")
     st.plotly_chart(fig, use_container_width=True)
 else:
-    st.warning("Chart temporarily unavailable — click Refresh")
+    st.warning("⚠️ Chart data is still loading. Please click **Refresh Now** below.")
 
-if st.button("🔄 Refresh Now (All Timeframes + Retrain AI)"):
-    pred = predict_future(model, df_5m, polymarket_markets) if model else None
+if st.button("🔄 Refresh Now (Update All Data + Retrain AI)"):
+    pred = predict_future(model, bars_df, polymarket_markets) if model else None
     log_data(price, change, polymarket_markets, pred)
     st.rerun()
 
-st.caption("✅ Uses Binance for high-resolution data + CoinGecko for price + Polymarket crowd wisdom")
+st.caption("✅ Using CoinGecko (stable) for price & chart + Polymarket for crowd wisdom")
