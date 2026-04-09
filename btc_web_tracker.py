@@ -3,30 +3,24 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime
 import requests
-import os
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score
-import joblib
 import numpy as np
 
 st.set_page_config(page_title="🚀 Multi-Asset Day Trader", layout="wide")
 st.title("🚀 Multi-Asset Day Trader Dashboard - BTC | EURUSD | Gold")
 
-LOG_FILE = "daytrader_log.csv"
-MODEL_FILE = "daytrader_model.pkl"
-
-# ================= PRICE FETCH =================
+# ================= PRICE FETCH WITH SAFE FALLBACK =================
 @st.cache_data(ttl=20)
 def fetch_price(symbol):
     try:
         if symbol == "BTC":
-            data = requests.get("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT", timeout=8).json()
+            data = requests.get("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT", timeout=10).json()
             return round(float(data["price"]), 2)
         elif symbol == "EURUSD":
-            data = requests.get("https://api.binance.com/api/v3/ticker/price?symbol=EURUSDT", timeout=8).json()
+            data = requests.get("https://api.binance.com/api/v3/ticker/price?symbol=EURUSDT", timeout=10).json()
             return round(float(data["price"]), 4)
         elif symbol == "GOLD":
-            data = requests.get("https://api.binance.com/api/v3/ticker/price?symbol=XAUUSDT", timeout=8).json()
+            data = requests.get("https://api.binance.com/api/v3/ticker/price?symbol=XAUUSDT", timeout=10).json()
             return round(float(data["price"]), 2)
     except:
         return None
@@ -38,10 +32,9 @@ def fetch_historical(symbol, days=60):
         if symbol == "BTC":
             url = f"https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days={days}"
         elif symbol == "GOLD":
-            # Using CoinGecko for Gold
             url = f"https://api.coingecko.com/api/v3/coins/gold/market_chart?vs_currency=usd&days={days}"
         else:
-            return pd.DataFrame()  # EURUSD historical is limited here
+            return pd.DataFrame()
         data = requests.get(url, timeout=15).json()
         df = pd.DataFrame(data["prices"], columns=["timestamp", "close"])
         df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
@@ -51,23 +44,22 @@ def fetch_historical(symbol, days=60):
     except:
         return pd.DataFrame()
 
-# ================= AI SIGNAL ENGINE =================
-def get_signal_for_asset(asset, price, bars_df, polymarket_prob=50):
-    if bars_df.empty or len(bars_df) < 30:
+# ================= SIGNAL ENGINE =================
+def get_signal_for_asset(asset, price, bars_df):
+    if price is None or bars_df.empty or len(bars_df) < 25:
         return "HOLD", 50, "🟡"
     
     df = bars_df.copy()
     for i in range(1, 12):
         df[f"lag_{i}"] = df["close"].pct_change(i)
     df["vol_8"] = df["close"].rolling(8).std()
-    df["crowd"] = polymarket_prob / 100
     df["target"] = (df["close"].shift(-1) > df["close"]).astype(int)
     df = df.dropna()
     
-    if len(df) < 20:
+    if len(df) < 15:
         return "HOLD", 50, "🟡"
     
-    X = df[[f"lag_{i}" for i in range(1,12)] + ["vol_8", "crowd"]]
+    X = df[[f"lag_{i}" for i in range(1,12)] + ["vol_8"]]
     y = df["target"]
     
     model = RandomForestClassifier(n_estimators=150, random_state=42)
@@ -80,35 +72,36 @@ def get_signal_for_asset(asset, price, bars_df, polymarket_prob=50):
     elif prob < 0.43: return "SELL", round((1-prob)*100, 1), "🔴"
     else: return "HOLD", round(prob*100, 1), "🟡"
 
-# ================= FUNDED ACCOUNT SIMULATOR =================
-def funded_simulator(price, asset, signal):
+# ================= FUNDED SIMULATOR =================
+def funded_simulator(price, signal):
+    if price is None:
+        return {}
     sizes = [0.1, 0.2, 0.3]
     sims = {}
     for size in sizes:
         if "BUY" in signal:
             entry = price * 0.985
             pnl = (price - entry) * size
-            pnl_pct = (price / entry - 1) * 100
-            sims[size] = (round(pnl, 2), round(pnl_pct, 2))
+            pct = (price / entry - 1) * 100
         else:
             entry = price * 1.015
             pnl = (entry - price) * size
-            pnl_pct = (entry / price - 1) * 100
-            sims[size] = (round(pnl, 2), round(pnl_pct, 2))
+            pct = (entry / price - 1) * 100
+        sims[size] = (round(pnl, 2), round(pct, 2))
     return sims
 
-# ================= MAIN APP =================
+# ================= MAIN DASHBOARD =================
 assets = ["BTC", "EURUSD", "GOLD"]
 prices = {asset: fetch_price(asset) for asset in assets}
 bars = {asset: fetch_historical(asset) for asset in assets}
 
 signals = {}
 for asset in assets:
-    poly_prob = 55 if asset == "BTC" else 50  # Polymarket mainly for BTC
-    signals[asset] = get_signal_for_asset(asset, prices[asset], bars[asset], poly_prob)
+    signals[asset] = get_signal_for_asset(asset, prices[asset], bars[asset])
 
-# Find best asset
-best_asset = max(signals, key=lambda a: signals[a][1] if "BUY" in signals[a][0] or "SELL" in signals[a][0] else 0)
+# Best asset
+valid_signals = {a: signals[a] for a in assets if signals[a][1] > 50}
+best_asset = max(valid_signals, key=lambda a: valid_signals[a][1]) if valid_signals else "BTC"
 
 st.subheader(f"🔥 BEST MARKET RIGHT NOW: **{best_asset}**")
 
@@ -118,28 +111,32 @@ for col, asset in zip([col1, col2, col3], assets):
     with col:
         price = prices[asset]
         signal, conf, emoji = signals[asset]
-        st.metric(f"{asset} Price", f"${price:,}" if asset != "EURUSD" else f"{price}", "")
+        price_display = f"${price:,}" if price and asset != "EURUSD" else f"{price}" if price else "N/A"
+        st.metric(f"{asset}", price_display)
         st.markdown(f"**{emoji} {signal}** ({conf}%)")
 
-# Funded Account Simulator
-st.subheader("💰 Funded Account Simulator (0.1 / 0.2 / 0.3 lots)")
+# Funded Simulator for Best Asset
+st.subheader("💰 Funded Account Simulator - Best Signal")
 if prices[best_asset]:
-    sim = funded_simulator(prices[best_asset], best_asset, signals[best_asset][0])
+    sim = funded_simulator(prices[best_asset], signals[best_asset][0])
     for size in [0.1, 0.2, 0.3]:
         pnl, pct = sim[size]
-        if pnl > 0:
+        if pnl >= 0:
             st.success(f"{best_asset} {size} lot → **${pnl:+.2f}** ({pct:+.2f}%)")
         else:
             st.error(f"{best_asset} {size} lot → **${pnl:+.2f}** ({pct:+.2f}%)")
+else:
+    st.warning("Waiting for price data...")
 
 st.divider()
 
-st.subheader("📊 All Assets Signals")
+st.subheader("📊 All Assets")
 for asset in assets:
     signal, conf, emoji = signals[asset]
-    st.write(f"**{asset}** → {emoji} **{signal}** ({conf}% confidence)")
+    price = prices[asset]
+    st.write(f"**{asset}** | {price if price else 'N/A'} → {emoji} **{signal}** ({conf}%)")
 
-if st.button("🔄 Refresh Now (New Signals + Simulator)"):
+if st.button("🔄 Refresh Now"):
     st.rerun()
 
-st.caption("This dashboard compares BTC, EURUSD, and Gold in real-time. Use the strongest signal for your funded account. Signals combine momentum + crowd sentiment.")
+st.caption("Signals combine momentum + volatility. Use the strongest signal for your Alpha Trader funded account.")
