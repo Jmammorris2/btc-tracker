@@ -6,11 +6,11 @@ import numpy as np
 from datetime import datetime
 
 st.set_page_config(page_title="🚀 Live Day Trader", layout="wide")
-st.title("🚀 Live Day Trader Dashboard - BTC | Gold | Nasdaq")
+st.title("🚀 Live Day Trader - BTC | Gold | Nasdaq")
 
-st.caption(f"🔴 Live Update • {datetime.now().strftime('%H:%M:%S')}")
+st.caption(f"🔴 LIVE • Updated: {datetime.now().strftime('%H:%M:%S')}")
 
-# ================= FAST PRICE FETCH =================
+# ================= PRICES =================
 @st.cache_data(ttl=8)
 def fetch_price(symbol):
     try:
@@ -25,31 +25,17 @@ def fetch_price(symbol):
     except:
         return None
 
-# ================= POLYMARKET (Fixed) =================
-@st.cache_data(ttl=40)
-def fetch_polymarket():
-    try:
-        r = requests.get("https://gamma-api.polymarket.com/markets?active=true&limit=100", timeout=10)
-        data = r.json()
-        btc = []
-        for m in data if isinstance(data, list) else data.get("markets", []):
-            title = (m.get("question") or m.get("title", "")).lower()
-            if "bitcoin" in title or "btc" in title:
-                try:
-                    prob = round(float(m.get("outcomePrices", [0.5])[0]) * 100, 1)
-                    btc.append({"title": m.get("question")[:65], "prob": prob})
-                except:
-                    pass
-        return btc[:8]
-    except:
-        return []
-
-# ================= BTC CHART =================
+# ================= CHARTS =================
 @st.cache_data(ttl=20)
-def fetch_btc_chart():
+def fetch_chart(symbol):
     try:
-        r = requests.get("https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=5m&limit=280", timeout=10)
-        data = r.json()
+        if symbol == "BTC":
+            url = "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=5m&limit=280"
+        elif symbol == "GOLD":
+            url = "https://api.binance.com/api/v3/klines?symbol=XAUUSDT&interval=5m&limit=280"
+        else:
+            return pd.DataFrame()
+        data = requests.get(url, timeout=10).json()
         df = pd.DataFrame(data, columns=['time','open','high','low','close','volume','_','_','_','_','_','_'])
         df['time'] = pd.to_datetime(df['time'], unit='ms')
         df['close'] = pd.to_numeric(df['close'])
@@ -69,62 +55,104 @@ def get_signal(df):
     emoji = "🟢" if "BUY" in signal else "🔴"
     return signal, conf, emoji
 
+# ================= POLYMARKET =================
+@st.cache_data(ttl=40)
+def fetch_polymarket():
+    try:
+        r = requests.get("https://gamma-api.polymarket.com/markets?active=true&limit=100", timeout=10)
+        data = r.json()
+        markets = []
+        for m in data if isinstance(data, list) else data.get("markets", []):
+            q = (m.get("question") or "").lower()
+            if "bitcoin" in q or "btc" in q:
+                try:
+                    prob = round(float(m.get("outcomePrices", [0.5])[0]) * 100, 1)
+                    markets.append({"title": m.get("question")[:65], "prob": prob})
+                except:
+                    pass
+        return markets[:8]
+    except:
+        return []
+
 # ================= MAIN =================
 price_btc = fetch_price("BTC")
 price_gold = fetch_price("GOLD")
 price_nasdaq = fetch_price("NASDAQ")
+
+chart_btc = fetch_chart("BTC")
+chart_gold = fetch_chart("GOLD")
+
+signal_btc, conf_btc, emoji_btc = get_signal(chart_btc)
+signal_gold, conf_gold, emoji_gold = get_signal(chart_gold)
+
 poly = fetch_polymarket()
-df_chart = fetch_btc_chart()
-signal, conf, emoji = get_signal(df_chart)
 
 st.subheader(f"🔥 BEST MARKET RIGHT NOW: **BTC**")
 
 col1, col2, col3 = st.columns(3)
+
 with col1:
     st.metric("BTC", f"${price_btc:,}" if price_btc else "N/A")
-    st.markdown(f"**{emoji} {signal}** ({conf}%)")
+    st.markdown(f"**{emoji_btc} {signal_btc}** ({conf_btc}%)")
+
 with col2:
     st.metric("Gold (XAU)", f"${price_gold:,}" if price_gold else "N/A")
-    st.markdown("🟡 HOLD (52%)")
+    st.markdown(f"**{emoji_gold} {signal_gold}** ({conf_gold}%)")
+
 with col3:
     st.metric("Nasdaq", f"${price_nasdaq:,}" if price_nasdaq else "N/A")
-    st.markdown("🟡 HOLD (49%)")
+    st.markdown("🟡 HOLD (50%)")
 
-st.subheader("📊 Polymarket Crowd Wisdom (Real Money)")
+st.subheader("📊 Polymarket Crowd Wisdom")
 if poly:
     for m in poly:
         st.write(f"• {m['title']} → **{m['prob']}%**")
 else:
     st.info("Polymarket loading...")
 
-st.subheader("💰 Funded Account Simulator")
+st.subheader("💰 Funded Account Simulator (0.1 / 0.2 / 0.3 BTC)")
 if price_btc:
     for size in [0.1, 0.2, 0.3]:
-        pnl = round(price_btc * 0.018 * size, 2) if "BUY" in signal else round(price_btc * -0.018 * size, 2)
+        pnl = round(price_btc * 0.018 * size, 2) if "BUY" in signal_btc else round(price_btc * -0.018 * size, 2)
         if pnl > 0:
             st.success(f"{size} BTC Long → **${pnl:+,.2f}**")
         else:
             st.error(f"{size} BTC Short → **${pnl:+,.2f}**")
 
-st.subheader("📈 BTC 5-Minute Live Chart with Signals")
-if not df_chart.empty:
-    df = df_chart.copy()
-    df["ma8"] = df["close"].rolling(8).mean()
-    df["ma21"] = df["close"].rolling(21).mean()
-    df["signal"] = np.where(df["ma8"] > df["ma21"], "BUY", "SELL")
-    
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df.index, y=df["close"], name="Price", line=dict(color="#f2a900", width=3)))
-    buys = df[df["signal"] == "BUY"]
-    sells = df[df["signal"] == "SELL"]
-    fig.add_trace(go.Scatter(x=buys.index, y=buys["close"], mode="markers", marker=dict(symbol="triangle-up", size=18, color="lime"), name="LONG ENTRY"))
-    fig.add_trace(go.Scatter(x=sells.index, y=sells["close"], mode="markers", marker=dict(symbol="triangle-down", size=18, color="red"), name="SHORT ENTRY"))
-    fig.update_layout(height=680, template="plotly_dark")
-    st.plotly_chart(fig, use_container_width=True)
-else:
-    st.warning("Chart loading...")
+st.subheader("📈 Live Charts with Signals")
+tab1, tab2 = st.tabs(["BTC Chart", "Gold Chart"])
+
+with tab1:
+    if not chart_btc.empty:
+        df = chart_btc.copy()
+        df["ma8"] = df["close"].rolling(8).mean()
+        df["ma21"] = df["close"].rolling(21).mean()
+        df["signal"] = np.where(df["ma8"] > df["ma21"], "BUY", "SELL")
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=df.index, y=df["close"], name="Price", line=dict(color="#f2a900", width=3)))
+        buys = df[df["signal"] == "BUY"]
+        sells = df[df["signal"] == "SELL"]
+        fig.add_trace(go.Scatter(x=buys.index, y=buys["close"], mode="markers", marker=dict(symbol="triangle-up", size=16, color="lime"), name="LONG ENTRY"))
+        fig.add_trace(go.Scatter(x=sells.index, y=sells["close"], mode="markers", marker=dict(symbol="triangle-down", size=16, color="red"), name="SHORT ENTRY"))
+        fig.update_layout(height=600, template="plotly_dark")
+        st.plotly_chart(fig, use_container_width=True)
+
+with tab2:
+    if not chart_gold.empty:
+        df = chart_gold.copy()
+        df["ma8"] = df["close"].rolling(8).mean()
+        df["ma21"] = df["close"].rolling(21).mean()
+        df["signal"] = np.where(df["ma8"] > df["ma21"], "BUY", "SELL")
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=df.index, y=df["close"], name="Gold", line=dict(color="#ffd700", width=3)))
+        buys = df[df["signal"] == "BUY"]
+        sells = df[df["signal"] == "SELL"]
+        fig.add_trace(go.Scatter(x=buys.index, y=buys["close"], mode="markers", marker=dict(symbol="triangle-up", size=16, color="lime"), name="LONG ENTRY"))
+        fig.add_trace(go.Scatter(x=sells.index, y=sells["close"], mode="markers", marker=dict(symbol="triangle-down", size=16, color="red"), name="SHORT ENTRY"))
+        fig.update_layout(height=600, template="plotly_dark")
+        st.plotly_chart(fig, use_container_width=True)
 
 if st.button("🔄 Refresh Now"):
     st.rerun()
 
-st.caption("Green ▲ = Long Entry | Red ▼ = Short Entry | Polymarket crowd data included.")
+st.caption("Green ▲ = Long Entry | Red ▼ = Short Entry | Charts are 5-minute candles")
