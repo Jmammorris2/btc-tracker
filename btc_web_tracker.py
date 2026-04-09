@@ -6,46 +6,58 @@ import numpy as np
 from datetime import datetime
 
 st.set_page_config(page_title="🚀 Live Day Trader", layout="wide")
-st.title("🚀 Live Day Trader - BTC | Gold | Nasdaq")
+st.title("🚀 Live Day Trader - BTC | Gold | Nasdaq + Polymarket")
 
 st.caption(f"Last updated: {datetime.now().strftime('%H:%M:%S')}")
 
-# ================= PRICE FETCH WITH CLEAR ERRORS =================
+# ================= RELIABLE PRICE FETCH (CoinGecko + Binance fallback) =================
 def fetch_price(symbol):
     try:
         if symbol == "BTC":
-            r = requests.get("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT", timeout=8)
-            return round(float(r.json()["price"]), 2)
+            url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd"
+            data = requests.get(url, timeout=10).json()
+            return round(data["bitcoin"]["usd"], 2)
         elif symbol == "GOLD":
-            r = requests.get("https://api.binance.com/api/v3/ticker/price?symbol=XAUUSDT", timeout=8)
-            return round(float(r.json()["price"]), 2)
+            url = "https://api.coingecko.com/api/v3/simple/price?ids=gold&vs_currencies=usd"
+            data = requests.get(url, timeout=10).json()
+            return round(data["gold"]["usd"], 2)
         elif symbol == "NASDAQ":
             return 18285.5
-    except Exception as e:
-        st.error(f"❌ Failed to get {symbol} price")
-        return None
+    except:
+        try:
+            # Binance fallback
+            if symbol == "BTC":
+                r = requests.get("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT", timeout=6)
+                return round(float(r.json()["price"]), 2)
+            elif symbol == "GOLD":
+                r = requests.get("https://api.binance.com/api/v3/ticker/price?symbol=XAUUSDT", timeout=6)
+                return round(float(r.json()["price"]), 2)
+        except:
+            st.error(f"❌ Could not fetch {symbol} price from any source")
+            return None
 
 # ================= CHART DATA =================
 def fetch_chart(symbol):
     try:
         if symbol == "BTC":
-            url = "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=5m&limit=300"
+            url = "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=7&interval=hourly"
         elif symbol == "GOLD":
-            url = "https://api.binance.com/api/v3/klines?symbol=XAUUSDT&interval=5m&limit=300"
+            url = "https://api.coingecko.com/api/v3/coins/gold/market_chart?vs_currency=usd&days=7&interval=hourly"
         else:
             return pd.DataFrame()
-        data = requests.get(url, timeout=10).json()
-        df = pd.DataFrame(data, columns=['time','open','high','low','close','volume','_','_','_','_','_','_'])
-        df['time'] = pd.to_datetime(df['time'], unit='ms')
-        df['close'] = pd.to_numeric(df['close'])
-        return df.set_index('time')[['close']]
+        data = requests.get(url, timeout=15).json()
+        df = pd.DataFrame(data["prices"], columns=["timestamp", "close"])
+        df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
+        df = df.set_index("timestamp")
+        df["close"] = pd.to_numeric(df["close"])
+        return df
     except:
-        st.error(f"❌ Failed to load {symbol} chart")
+        st.error(f"❌ Could not load {symbol} chart")
         return pd.DataFrame()
 
 # ================= SIGNAL =================
 def get_signal(df):
-    if df.empty or len(df) < 30:
+    if df.empty or len(df) < 20:
         return "NO DATA", 0, "⚪"
     df = df.copy()
     df["ma8"] = df["close"].rolling(8).mean()
@@ -71,7 +83,6 @@ def fetch_polymarket():
                     pass
         return markets[:8]
     except:
-        st.warning("Polymarket data not available")
         return []
 
 # ================= MAIN =================
@@ -108,7 +119,7 @@ if poly:
     for m in poly:
         st.write(f"• {m['title']} → **{m['prob']}%**")
 else:
-    st.info("No Polymarket data")
+    st.warning("Polymarket data not available right now")
 
 st.subheader("💰 Funded Account Simulator (0.1 / 0.2 / 0.3 BTC)")
 if price_btc:
@@ -120,7 +131,7 @@ if price_btc:
             st.error(f"{size} BTC Short → **${pnl:+,.2f}**")
 
 st.subheader("📈 Live Charts with Signals")
-tab1, tab2 = st.tabs(["BTC 5m Chart", "Gold 5m Chart"])
+tab1, tab2 = st.tabs(["BTC Chart", "Gold Chart"])
 
 with tab1:
     if not chart_btc.empty:
@@ -129,7 +140,7 @@ with tab1:
         df["ma21"] = df["close"].rolling(21).mean()
         df["signal"] = np.where(df["ma8"] > df["ma21"], "BUY", "SELL")
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=df.index, y=df["close"], name="BTC", line=dict(color="#f2a900", width=3)))
+        fig.add_trace(go.Scatter(x=df.index, y=df["close"], name="Price", line=dict(color="#f2a900", width=3)))
         buys = df[df["signal"] == "BUY"]
         sells = df[df["signal"] == "SELL"]
         fig.add_trace(go.Scatter(x=buys.index, y=buys["close"], mode="markers", marker=dict(symbol="triangle-up", size=18, color="lime"), name="LONG ENTRY"))
@@ -159,4 +170,4 @@ with tab2:
 if st.button("🔄 Refresh Now"):
     st.rerun()
 
-st.caption("Green ▲ = Long Entry | Red ▼ = Short Entry | This version has clear error messages if anything fails.")
+st.caption("Green ▲ = Long Entry | Red ▼ = Short Entry")
