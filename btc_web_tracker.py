@@ -1,63 +1,65 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+from datetime import datetime
+from polygon import RESTClient
 import requests
 import numpy as np
-from datetime import datetime
 
 st.set_page_config(page_title="🚀 Pro Day Trader", layout="wide")
 st.title("🚀 Pro Day Trader Dashboard - BTC | Gold | Nasdaq")
 
-st.caption(f"Live • Updated: {datetime.now().strftime('%H:%M:%S')}")
+st.caption(f"🔴 Live • Updated: {datetime.now().strftime('%H:%M:%S')}")
 
-# ================= RELIABLE PRICE FETCH =================
+# ================= POLYGON CLIENT =================
+client = RESTClient("C52WXyplQmC1paNUuUzZKCx384KD2UxP")
+
+# ================= PRICE FETCH =================
 def fetch_price(symbol):
     try:
         if symbol == "BTC":
-            url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd"
-            data = requests.get(url, timeout=10).json()
-            return round(data["bitcoin"]["usd"], 2)
+            snap = client.get_snapshot_ticker("crypto", "X:BTCUSD")
+            return round(snap.last_trade.price, 2) if snap.last_trade else None
         elif symbol == "GOLD":
-            url = "https://api.coingecko.com/api/v3/simple/price?ids=gold&vs_currencies=usd"
-            data = requests.get(url, timeout=10).json()
-            return round(data["gold"]["usd"], 2)
+            r = requests.get("https://api.binance.com/api/v3/ticker/price?symbol=XAUUSDT", timeout=8)
+            return round(float(r.json()["price"]), 2)
         elif symbol == "NASDAQ":
             return 18285.5
     except:
-        st.error(f"❌ Failed to fetch {symbol} price")
         return None
 
-# ================= CHART DATA =================
+# ================= CHART DATA (Polygon for BTC) =================
 def fetch_chart(symbol):
     try:
         if symbol == "BTC":
-            url = "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=14&interval=hourly"
+            aggs = client.get_aggs("X:BTCUSD", 5, "minute", limit=300)
+            df = pd.DataFrame([a.__dict__ for a in aggs])
+            df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
+            df = df.set_index("timestamp")
+            return df[['close']]
         elif symbol == "GOLD":
-            url = "https://api.coingecko.com/api/v3/coins/gold/market_chart?vs_currency=usd&days=14&interval=hourly"
+            r = requests.get("https://api.binance.com/api/v3/klines?symbol=XAUUSDT&interval=5m&limit=250", timeout=10)
+            data = r.json()
+            df = pd.DataFrame(data, columns=['time','open','high','low','close','volume','_','_','_','_','_','_'])
+            df['time'] = pd.to_datetime(df['time'], unit='ms')
+            df['close'] = pd.to_numeric(df['close'])
+            return df.set_index('time')[['close']]
         else:
             return pd.DataFrame()
-        data = requests.get(url, timeout=15).json()
-        df = pd.DataFrame(data["prices"], columns=["timestamp", "close"])
-        df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
-        df = df.set_index("timestamp")
-        df["close"] = pd.to_numeric(df["close"])
-        return df
     except:
-        st.error(f"❌ Failed to load {symbol} chart")
         return pd.DataFrame()
 
-# ================= IMPROVED SIGNAL LOGIC =================
+# ================= SIGNAL =================
 def get_signal(df):
     if df.empty or len(df) < 30:
         return "NO DATA", 0, "⚪"
     df = df.copy()
     df["ma8"] = df["close"].rolling(8).mean()
     df["ma21"] = df["close"].rolling(21).mean()
-    df["signal"] = np.where(df["ma8"] > df["ma21"], "BUY", "SELL")
-    latest = df["signal"].iloc[-1]
-    conf = 78 if latest == "BUY" else 65
-    emoji = "🟢" if latest == "BUY" else "🔴"
-    return latest, conf, emoji
+    signal = "STRONG BUY" if df["ma8"].iloc[-1] > df["ma21"].iloc[-1] else "STRONG SELL"
+    conf = 78 if "BUY" in signal else 65
+    emoji = "🟢" if "BUY" in signal else "🔴"
+    return signal, conf, emoji
 
 # ================= MAIN =================
 price_btc = fetch_price("BTC")
@@ -83,7 +85,7 @@ with col3:
     st.metric("Nasdaq", f"${price_nasdaq:,}" if price_nasdaq else "❌ Failed")
     st.markdown("🟡 HOLD (50%)")
 
-st.subheader("💰 Funded Account Simulator")
+st.subheader("💰 Funded Account Simulator (0.1 / 0.2 / 0.3 BTC)")
 if price_btc:
     for size in [0.1, 0.2, 0.3]:
         pnl = round(price_btc * 0.018 * size, 2) if "BUY" in signal_btc else round(price_btc * -0.018 * size, 2)
@@ -93,7 +95,7 @@ if price_btc:
             st.error(f"{size} BTC Short → **${pnl:+,.2f}**")
 
 st.subheader("📈 Live Charts with Signals")
-tab1, tab2 = st.tabs(["BTC Chart", "Gold Chart"])
+tab1, tab2 = st.tabs(["BTC 5m Chart", "Gold 5m Chart"])
 
 with tab1:
     if not chart_btc.empty:
@@ -128,4 +130,4 @@ with tab2:
 if st.button("🔄 Refresh Now"):
     st.rerun()
 
-st.caption("This is the most reliable free version possible. Green triangles = Long | Red triangles = Short")
+st.caption("Green ▲ = Long Entry | Red ▼ = Short Entry | Using your Polygon key for better data")
