@@ -607,7 +607,7 @@ else:
     st.info("Signals appear here as they are detected on each refresh.")
 st.divider()
 st.subheader("Market detail and backtests")
-tab_btc, tab_nq, tab_gold, tab_sessions = st.tabs(["BTC / USD", "NASDAQ (QQQ)", "Gold (GLD)", "Trading Sessions"])
+tab_btc, tab_nq, tab_gold, tab_sessions, tab_alpha = st.tabs(["BTC / USD", "NASDAQ (QQQ)", "Gold (GLD)", "Trading Sessions", "⚡ Alpha Trader Lab"])
 def render_market_tab(name, df, price, chg, vol, rsi, macd, sig, conf, emoji,
                       is_bull, macd_bull, levels, is_crypto, chart_color,
                       active_sessions, snap=None, poly_rsi=None):
@@ -775,6 +775,472 @@ with tab_sessions:
         marker = "  <-- YOU ARE HERE" if is_now else ""
         q      = quality_map.get(name, "Medium")
         st.markdown(f"**{name}:** Signal quality = {q}{marker}")
+# ─────────────────────────────────────────────
+# ALPHA TRADER LAB TAB
+# ─────────────────────────────────────────────
+with tab_alpha:
+    st.markdown("## ⚡ Alpha Trader Lab — All 3 Markets Live")
+    st.caption("Swing high/low engine • $25,000 account • Alpha Firm rules • Data collector")
+
+    # ── session state init ──────────────────────────────────────────────────
+    ALPHA_DEFAULTS = {
+        "alpha_account":        25000.0,
+        "alpha_peak":           25000.0,
+        "alpha_daily_start":    25000.0,
+        "alpha_trades":         [],
+        "alpha_open":           {},          # keyed by market
+        "alpha_signal_data":    [],          # every signal ever fired with timestamp + session
+        "alpha_session_stats":  {},          # {session: {market: {wins,losses,total}}}
+        "alpha_hour_stats":     {},          # {hour_utc: {market: {wins,losses}}}
+        "alpha_ticks":          0,
+        "alpha_running":        False,
+        "alpha_last_tick":      0.0,
+        "alpha_prices":         {"BTC": [], "NQ": [], "GOLD": []},
+        "alpha_swings":         {"BTC": {"highs":[],"lows":[]}, "NQ": {"highs":[],"lows":[]}, "GOLD": {"highs":[],"lows":[]}},
+    }
+    for k, v in ALPHA_DEFAULTS.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+
+    ALPHA_ASSETS = {
+        "BTC":  {"label": "BTC/USD",      "base": btc_price  or 84000, "vol": 800,  "color": "#f2a900", "is_crypto": True},
+        "NQ":   {"label": "NASDAQ (QQQ)", "base": nq_price   or 490,   "vol": 4,    "color": "#378ADD", "is_crypto": False},
+        "GOLD": {"label": "Gold (GLD)",   "base": gld_price  or 3200,  "vol": 12,   "color": "#BA7517", "is_crypto": False},
+    }
+    ALPHA_START    = 25000.0
+    ALPHA_MAX_DD   = 0.10
+    ALPHA_MAX_DAILY= 0.03
+    ALPHA_RISK     = 0.01
+    SWING_N        = 5
+
+    def alpha_dd():
+        pk = st.session_state["alpha_peak"]
+        ac = st.session_state["alpha_account"]
+        return (pk - ac) / pk if pk > 0 else 0
+
+    def alpha_daily_loss():
+        ds = st.session_state["alpha_daily_start"]
+        ac = st.session_state["alpha_account"]
+        return max(0, (ds - ac) / ds) if ds > 0 else 0
+
+    def alpha_can_trade(market):
+        return (
+            alpha_dd() < ALPHA_MAX_DD and
+            alpha_daily_loss() < ALPHA_MAX_DAILY and
+            market not in st.session_state["alpha_open"]
+        )
+
+    def alpha_detect_swings(arr, n=SWING_N):
+        highs, lows = [], []
+        for i in range(n, len(arr) - n):
+            slice_ = arr[i-n:i+n+1]
+            if arr[i] == max(slice_):
+                highs.append({"idx": i, "price": arr[i]})
+            if arr[i] == min(slice_):
+                lows.append({"idx": i, "price": arr[i]})
+        return highs, lows
+
+    def alpha_get_signal(highs, lows, prices):
+        if len(highs) < 2 or len(lows) < 2:
+            return "hold"
+        lh, ph = highs[-1]["price"], highs[-2]["price"]
+        ll, pl = lows[-1]["price"],  lows[-2]["price"]
+        price  = prices[-1]
+        if lh > ph and ll > pl and price > lows[-1]["price"] * 1.001:
+            return "long"
+        if lh < ph and ll < pl and price < highs[-1]["price"] * 0.999:
+            return "short"
+        return "hold"
+
+    def alpha_record_signal(market, signal, price, session_name, hour_utc, outcome=None, pnl=None):
+        entry = {
+            "ts":      datetime.now().strftime("%H:%M:%S"),
+            "market":  market,
+            "signal":  signal,
+            "price":   price,
+            "session": session_name,
+            "hour":    hour_utc,
+            "outcome": outcome,
+            "pnl":     pnl,
+        }
+        st.session_state["alpha_signal_data"].append(entry)
+
+        # session stats
+        ss = st.session_state["alpha_session_stats"]
+        if session_name not in ss:
+            ss[session_name] = {}
+        if market not in ss[session_name]:
+            ss[session_name][market] = {"wins": 0, "losses": 0, "total": 0, "pnl": 0.0}
+        if outcome:
+            ss[session_name][market]["total"] += 1
+            ss[session_name][market]["pnl"]   += pnl or 0
+            if outcome == "win":
+                ss[session_name][market]["wins"] += 1
+            else:
+                ss[session_name][market]["losses"] += 1
+
+        # hour stats
+        hs = st.session_state["alpha_hour_stats"]
+        if hour_utc not in hs:
+            hs[hour_utc] = {}
+        if market not in hs[hour_utc]:
+            hs[hour_utc][market] = {"wins": 0, "losses": 0, "total": 0, "pnl": 0.0}
+        if outcome:
+            hs[hour_utc][market]["total"] += 1
+            hs[hour_utc][market]["pnl"]   += pnl or 0
+            if outcome == "win":
+                hs[hour_utc][market]["wins"] += 1
+            else:
+                hs[hour_utc][market]["losses"] += 1
+
+    def alpha_tick():
+        utc_now      = datetime.now(ZoneInfo("UTC"))
+        hour_utc     = utc_now.hour
+        active_sess, _ = get_current_session()
+        session_name = active_sess[0] if active_sess else "Off-hours"
+        account      = st.session_state["alpha_account"]
+        peak         = st.session_state["alpha_peak"]
+        open_trades  = st.session_state["alpha_open"]
+        st.session_state["alpha_ticks"] += 1
+
+        for mkey, asset in ALPHA_ASSETS.items():
+            prices = st.session_state["alpha_prices"][mkey]
+            last   = prices[-1] if prices else asset["base"]
+            drift  = (np.random.random() - 0.48) * asset["vol"]
+            mom    = (prices[-1] - prices[-2]) * 0.3 if len(prices) >= 2 else 0
+            price  = max(asset["base"] * 0.3, last + drift + mom)
+            prices.append(price)
+            if len(prices) > 300:
+                prices.pop(0)
+
+            # close open trade?
+            if mkey in open_trades:
+                tr    = open_trades[mkey]
+                hit_stop = (tr["dir"] == "long"  and price <= tr["stop"]) or \
+                           (tr["dir"] == "short" and price >= tr["stop"])
+                hit_tp   = (tr["dir"] == "long"  and price >= tr["tp"]) or \
+                           (tr["dir"] == "short" and price <= tr["tp"])
+                if hit_stop or hit_tp:
+                    pnl = (price - tr["entry"]) * tr["size"] if tr["dir"] == "long" \
+                          else (tr["entry"] - price) * tr["size"]
+                    account = max(0, account + pnl)
+                    outcome = "win" if pnl > 0 else "loss"
+                    tr["exit"]    = price
+                    tr["pnl"]     = pnl
+                    tr["outcome"] = outcome
+                    st.session_state["alpha_trades"].append(tr)
+                    alpha_record_signal(mkey, tr["dir"], price, tr["entry_session"], tr["entry_hour"], outcome, pnl)
+                    del open_trades[mkey]
+
+            # detect swings and maybe open
+            highs, lows = alpha_detect_swings(prices)
+            st.session_state["alpha_swings"][mkey] = {"highs": highs, "lows": lows}
+
+            if alpha_can_trade(mkey) and len(highs) >= 2 and len(lows) >= 2:
+                sig = alpha_get_signal(highs, lows, prices)
+                if sig in ("long", "short"):
+                    risk_usd  = account * ALPHA_RISK
+                    if sig == "long":
+                        stop = lows[-1]["price"] * 0.998
+                        tp   = price + (price - stop) * 2.5
+                    else:
+                        stop = highs[-1]["price"] * 1.002
+                        tp   = price - (stop - price) * 2.5
+                    risk_pt = abs(price - stop)
+                    size    = max(0.001, round(risk_usd / risk_pt, 4)) if risk_pt > 0 else 0.001
+                    open_trades[mkey] = {
+                        "market":        mkey,
+                        "dir":           sig,
+                        "entry":         price,
+                        "stop":          stop,
+                        "tp":            tp,
+                        "size":          size,
+                        "entry_session": session_name,
+                        "entry_hour":    hour_utc,
+                    }
+
+        st.session_state["alpha_account"]  = account
+        st.session_state["alpha_peak"]     = max(peak, account)
+        st.session_state["alpha_open"]     = open_trades
+
+    # ── controls ────────────────────────────────────────────────────────────
+    ctrl_cols = st.columns([1,1,1,1,2])
+    with ctrl_cols[0]:
+        if st.button("▶ Run 100 ticks", key="alpha_run100"):
+            for _ in range(100):
+                alpha_tick()
+            st.rerun()
+    with ctrl_cols[1]:
+        if st.button("▶▶ Run 500 ticks", key="alpha_run500"):
+            for _ in range(500):
+                alpha_tick()
+            st.rerun()
+    with ctrl_cols[2]:
+        if st.button("▶▶▶ Run 2000 ticks", key="alpha_run2000"):
+            for _ in range(2000):
+                alpha_tick()
+            st.rerun()
+    with ctrl_cols[3]:
+        if st.button("🔄 Reset lab", key="alpha_reset"):
+            for k, v in ALPHA_DEFAULTS.items():
+                st.session_state[k] = v if not isinstance(v, dict) and not isinstance(v, list) else (type(v)())
+            st.session_state["alpha_account"]     = 25000.0
+            st.session_state["alpha_peak"]        = 25000.0
+            st.session_state["alpha_daily_start"] = 25000.0
+            st.session_state["alpha_prices"]      = {"BTC": [], "NQ": [], "GOLD": []}
+            st.session_state["alpha_swings"]      = {"BTC": {"highs":[],"lows":[]}, "NQ": {"highs":[],"lows":[]}, "GOLD": {"highs":[],"lows":[]}}
+            st.rerun()
+    with ctrl_cols[4]:
+        ticks = st.session_state["alpha_ticks"]
+        trades_done = len(st.session_state["alpha_trades"])
+        st.caption(f"Ticks run: **{ticks:,}** | Closed trades: **{trades_done}** | Open: **{len(st.session_state['alpha_open'])}**")
+
+    st.divider()
+
+    # ── account metrics ──────────────────────────────────────────────────────
+    account_now = st.session_state["alpha_account"]
+    profit_now  = account_now - ALPHA_START
+    dd_pct      = alpha_dd() * 100
+    dl_pct      = alpha_daily_loss() * 100
+    all_trades  = st.session_state["alpha_trades"]
+    wins        = [t for t in all_trades if t.get("outcome") == "win"]
+    losses      = [t for t in all_trades if t.get("outcome") == "loss"]
+    win_rate    = len(wins) / len(all_trades) * 100 if all_trades else 0
+
+    mc = st.columns(6)
+    mc[0].metric("Account balance",   f"${account_now:,.2f}", delta=f"{profit_now:+.2f}")
+    mc[1].metric("Net P&L",           f"${profit_now:+,.2f}")
+    mc[2].metric("Your 80% cut",      f"${max(0,profit_now)*0.8:,.2f}")
+    mc[3].metric("Smart DD used",     f"{dd_pct:.1f}% / 10%", delta=f"{10-dd_pct:.1f}% left", delta_color="off")
+    mc[4].metric("Daily loss used",   f"{dl_pct:.1f}% / 3%")
+    mc[5].metric("Win rate",          f"{win_rate:.0f}%", delta=f"{len(wins)}W / {len(losses)}L", delta_color="off")
+
+    # drawdown bars
+    dd_color  = "red" if dd_pct > 7  else "orange" if dd_pct > 4  else "normal"
+    dl_color  = "red" if dl_pct > 2  else "orange" if dl_pct > 1  else "normal"
+    st.progress(min(1.0, dd_pct / 10),  text=f"Smart drawdown  {dd_pct:.1f}% of 10%")
+    st.progress(min(1.0, dl_pct / 3),   text=f"Daily loss  {dl_pct:.1f}% of 3%")
+
+    if dd_pct >= 10 or dl_pct >= 3:
+        st.error("🛑 Alpha Firm limits breached — trading halted. Reset or wait for new day.")
+
+    st.divider()
+
+    # ── live price action charts (all 3) ─────────────────────────────────────
+    st.subheader("Live price action — all 3 markets")
+    chart_cols = st.columns(3)
+    for cidx, (mkey, asset) in enumerate(ALPHA_ASSETS.items()):
+        with chart_cols[cidx]:
+            prices  = st.session_state["alpha_prices"][mkey]
+            swings  = st.session_state["alpha_swings"][mkey]
+            highs   = swings["highs"]
+            lows    = swings["lows"]
+            is_open = mkey in st.session_state["alpha_open"]
+            open_tr = st.session_state["alpha_open"].get(mkey)
+
+            if len(prices) < 2:
+                st.info(f"{asset['label']}: run ticks to populate")
+                continue
+
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=list(range(len(prices))), y=prices,
+                line=dict(color=asset["color"], width=1.5),
+                name="Price", showlegend=False
+            ))
+
+            h_x = [h["idx"] for h in highs if h["idx"] < len(prices)]
+            h_y = [h["price"] for h in highs if h["idx"] < len(prices)]
+            l_x = [l["idx"] for l in lows  if l["idx"] < len(prices)]
+            l_y = [l["price"] for l in lows  if l["idx"] < len(prices)]
+
+            if h_x:
+                fig.add_trace(go.Scatter(x=h_x, y=h_y, mode="markers",
+                    marker=dict(symbol="triangle-down", color="#ef4444", size=8),
+                    name="Swing H", showlegend=False))
+            if l_x:
+                fig.add_trace(go.Scatter(x=l_x, y=l_y, mode="markers",
+                    marker=dict(symbol="triangle-up", color="#22c55e", size=8),
+                    name="Swing L", showlegend=False))
+
+            if is_open and open_tr:
+                fig.add_hline(y=open_tr["entry"], line=dict(color="#fff",    width=1, dash="dot"),  annotation_text="Entry")
+                fig.add_hline(y=open_tr["stop"],  line=dict(color="#ef4444", width=1, dash="dash"), annotation_text="Stop")
+                fig.add_hline(y=open_tr["tp"],    line=dict(color="#22c55e", width=1, dash="dash"), annotation_text="TP")
+
+            dir_label = ""
+            border_col = asset["color"]
+            if is_open and open_tr:
+                dir_label  = f"  {'LONG 🟢' if open_tr['dir']=='long' else 'SHORT 🔴'}"
+                border_col = "#22c55e" if open_tr["dir"] == "long" else "#ef4444"
+
+            fig.update_layout(
+                height=240, template="plotly_dark",
+                title=dict(text=f"{asset['label']}{dir_label}", font=dict(size=13)),
+                margin=dict(l=0, r=0, t=30, b=0),
+                xaxis=dict(visible=False),
+                yaxis=dict(tickfont=dict(size=9)),
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+            last_price = prices[-1]
+            price_fmt  = f"${last_price:,.0f}" if asset["is_crypto"] else f"${last_price:,.2f}"
+            st.markdown(
+                f'<div style="font-size:12px;text-align:center;margin-top:-12px;">'
+                f'<span style="color:{asset["color"]};font-weight:600">{price_fmt}</span>'
+                f'{"  |  <span style=color:#22c55e>OPEN: "+open_tr["dir"].upper()+"</span>" if is_open and open_tr else ""}'
+                f'</div>', unsafe_allow_html=True)
+
+    st.divider()
+
+    # ── data intelligence: best time to trade ──────────────────────────────
+    st.subheader("📊 Data intelligence — when to trade")
+
+    hour_stats   = st.session_state["alpha_hour_stats"]
+    session_stats= st.session_state["alpha_session_stats"]
+    signal_data  = st.session_state["alpha_signal_data"]
+
+    if not signal_data:
+        st.info("Run ticks to collect trading data. The lab will map win rates by hour and session across all 3 markets.")
+    else:
+        # ── session win rate heatmap ─────────────────────────────────────────
+        st.markdown("#### Win rate by session × market")
+        sessions_order = ["Tokyo", "London", "NY", "Overlap", "Off-hours"]
+        markets_order  = ["BTC", "NQ", "GOLD"]
+        heat_data = []
+        for sess in sessions_order:
+            row = []
+            for mkt in markets_order:
+                s = session_stats.get(sess, {}).get(mkt, {})
+                total = s.get("total", 0)
+                wins_s= s.get("wins",  0)
+                wr    = (wins_s / total * 100) if total > 0 else None
+                row.append(wr)
+            heat_data.append(row)
+
+        fig_heat = go.Figure(data=go.Heatmap(
+            z=heat_data,
+            x=[ALPHA_ASSETS[m]["label"] for m in markets_order],
+            y=sessions_order,
+            colorscale=[[0,"#7f1d1d"],[0.5,"#854F0B"],[1,"#166534"]],
+            zmin=0, zmax=100,
+            text=[[f"{v:.0f}%" if v is not None else "—" for v in row] for row in heat_data],
+            texttemplate="%{text}",
+            textfont=dict(size=13),
+            showscale=True,
+            colorbar=dict(title="Win %", tickfont=dict(size=10)),
+        ))
+        fig_heat.update_layout(
+            height=280, template="plotly_dark",
+            margin=dict(l=0, r=0, t=20, b=0),
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+        )
+        st.plotly_chart(fig_heat, use_container_width=True)
+
+        # ── best hour bar chart ───────────────────────────────────────────────
+        st.markdown("#### Win rate by UTC hour (all markets combined)")
+        if hour_stats:
+            hour_rows = []
+            for h in sorted(hour_stats.keys()):
+                total_h = sum(v.get("total", 0) for v in hour_stats[h].values())
+                wins_h  = sum(v.get("wins",  0) for v in hour_stats[h].values())
+                pnl_h   = sum(v.get("pnl",   0) for v in hour_stats[h].values())
+                wr_h    = (wins_h / total_h * 100) if total_h > 0 else 0
+                hour_rows.append({"hour": f"{h:02d}:00", "win_rate": wr_h, "trades": total_h, "pnl": pnl_h})
+
+            df_hours = pd.DataFrame(hour_rows)
+            bar_colors = ["#22c55e" if wr >= 55 else "#BA7517" if wr >= 45 else "#ef4444"
+                          for wr in df_hours["win_rate"]]
+            fig_hours = go.Figure()
+            fig_hours.add_trace(go.Bar(
+                x=df_hours["hour"], y=df_hours["win_rate"],
+                marker_color=bar_colors,
+                text=[f"{wr:.0f}%" for wr in df_hours["win_rate"]],
+                textposition="outside",
+                textfont=dict(size=10),
+                name="Win rate %",
+            ))
+            fig_hours.add_hline(y=50, line=dict(color="#888", width=1, dash="dot"), annotation_text="50%")
+            fig_hours.update_layout(
+                height=280, template="plotly_dark",
+                yaxis=dict(range=[0, 105], title="Win rate %"),
+                xaxis=dict(title="UTC hour"),
+                margin=dict(l=0, r=0, t=10, b=0),
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+            )
+            st.plotly_chart(fig_hours, use_container_width=True)
+
+        # ── best time verdict ─────────────────────────────────────────────────
+        st.markdown("#### Best time to trade — verdict")
+        verdict_cols = st.columns(3)
+        for cidx, mkey in enumerate(markets_order):
+            with verdict_cols[cidx]:
+                label = ALPHA_ASSETS[mkey]["label"]
+                color = ALPHA_ASSETS[mkey]["color"]
+                best_sess, best_sess_wr = "—", 0
+                for sess, mkts in session_stats.items():
+                    if mkey in mkts and mkts[mkey].get("total", 0) >= 3:
+                        wr = mkts[mkey]["wins"] / mkts[mkey]["total"] * 100
+                        if wr > best_sess_wr:
+                            best_sess_wr = wr
+                            best_sess    = sess
+
+                best_hour, best_hour_wr = "—", 0
+                for h, mkts in hour_stats.items():
+                    if mkey in mkts and mkts[mkey].get("total", 0) >= 3:
+                        wr = mkts[mkey]["wins"] / mkts[mkey]["total"] * 100
+                        if wr > best_hour_wr:
+                            best_hour_wr = wr
+                            best_hour    = f"{h:02d}:00 UTC"
+
+                total_m = sum(v.get("total",0) for s in session_stats.values() for k,v in s.items() if k == mkey)
+                wins_m  = sum(v.get("wins", 0) for s in session_stats.values() for k,v in s.items() if k == mkey)
+                pnl_m   = sum(v.get("pnl",  0) for s in session_stats.values() for k,v in s.items() if k == mkey)
+                overall_wr = (wins_m / total_m * 100) if total_m > 0 else 0
+
+                st.markdown(
+                    f'<div style="border:1.5px solid {color};border-radius:10px;padding:14px;margin-bottom:6px;">'
+                    f'<div style="font-size:13px;font-weight:600;color:{color};margin-bottom:8px">{label}</div>'
+                    f'<div style="font-size:12px;color:#aaa;">Best session: <span style="color:#fff;font-weight:600">{best_sess}</span> ({best_sess_wr:.0f}% WR)</div>'
+                    f'<div style="font-size:12px;color:#aaa;">Best hour: <span style="color:#fff;font-weight:600">{best_hour}</span> ({best_hour_wr:.0f}% WR)</div>'
+                    f'<div style="font-size:12px;color:#aaa;">Overall WR: <span style="color:{"#22c55e" if overall_wr>=50 else "#ef4444"};font-weight:600">{overall_wr:.0f}%</span></div>'
+                    f'<div style="font-size:12px;color:#aaa;">Trades: {total_m} | Net P&L: <span style="color:{"#22c55e" if pnl_m>=0 else "#ef4444"}">${pnl_m:+,.2f}</span></div>'
+                    f'</div>', unsafe_allow_html=True)
+
+        st.divider()
+
+        # ── full trade log ─────────────────────────────────────────────────────
+        st.markdown("#### Full trade log")
+        if all_trades:
+            df_tlog = pd.DataFrame(all_trades)
+            cols_show = [c for c in ["market","dir","entry","exit","stop","tp","size","pnl","outcome","entry_session","entry_hour"] if c in df_tlog.columns]
+            rename_map = {
+                "market":"Market","dir":"Dir","entry":"Entry","exit":"Exit",
+                "stop":"Stop","tp":"TP","size":"Size","pnl":"P&L",
+                "outcome":"Result","entry_session":"Session","entry_hour":"Hour UTC"
+            }
+            def _color_result(v):
+                return "color:#22c55e;font-weight:600" if v == "win" else "color:#ef4444;font-weight:600"
+            def _color_pnl(v):
+                return "color:#22c55e" if v > 0 else "color:#ef4444"
+            fmt_map = {"Entry":"${:,.2f}","Exit":"${:,.2f}","Stop":"${:,.2f}","TP":"${:,.2f}","P&L":"${:+,.2f}","Size":"{:.4f}"}
+            display_df = df_tlog[cols_show].rename(columns=rename_map)
+            styled = display_df.style
+            if "Result" in display_df.columns:
+                styled = styled.map(_color_result, subset=["Result"])
+            if "P&L" in display_df.columns:
+                styled = styled.map(_color_pnl, subset=["P&L"])
+            valid_fmt = {k: v for k, v in fmt_map.items() if k in display_df.columns}
+            if valid_fmt:
+                styled = styled.format(valid_fmt)
+            st.dataframe(styled, use_container_width=True, hide_index=True)
+        else:
+            st.info("No closed trades yet.")
+
 # ─────────────────────────────────────────────
 # AUTO REFRESH
 # ─────────────────────────────────────────────
