@@ -6,14 +6,12 @@ import requests
 import numpy as np
 from datetime import datetime, timedelta
 import time
-import pytz
+from zoneinfo import ZoneInfo
 
 st.set_page_config(page_title="Multi-Market Trader", layout="wide")
-
 # ─────────────────────────────────────────────
 # API KEY GATE
 # ─────────────────────────────────────────────
-
 def get_keys():
     poly_key = st.secrets.get("POLYGON_KEY", "") if hasattr(st, "secrets") else ""
     anth_key = st.secrets.get("ANTHROPIC_KEY", "") if hasattr(st, "secrets") else ""
@@ -21,9 +19,7 @@ def get_keys():
         st.session_state.get("POLYGON_KEY", poly_key),
         st.session_state.get("ANTHROPIC_KEY", anth_key),
     )
-
 POLYGON_KEY, ANTHROPIC_KEY = get_keys()
-
 if not POLYGON_KEY:
     st.title("Multi-Market Trader — Setup")
     st.info("Enter your API keys to get started. Stored in session only unless added to `.streamlit/secrets.toml`.")
@@ -38,18 +34,14 @@ if not POLYGON_KEY:
                 st.session_state["ANTHROPIC_KEY"] = ak
                 st.rerun()
     st.stop()
-
 # ─────────────────────────────────────────────
 # SESSION STATE
 # ─────────────────────────────────────────────
-
 if "signal_log" not in st.session_state:
     st.session_state["signal_log"] = []
-
 # ─────────────────────────────────────────────
 # SIDEBAR
 # ─────────────────────────────────────────────
-
 with st.sidebar:
     st.header("Settings")
     with st.expander("Update API keys", expanded=False):
@@ -71,32 +63,26 @@ with st.sidebar:
         st.rerun()
     st.divider()
     st.caption(f"Last updated: {datetime.now().strftime('%H:%M:%S')}")
-
 # ─────────────────────────────────────────────
 # TRADING SESSIONS
 # ─────────────────────────────────────────────
-
 SESSIONS = {
     "Tokyo":   {"start": 0,  "end": 9,  "color": "#7C3AED", "markets": ["BTC/USD"],                          "desc": "Thin liquidity. BTC can drift or spike. Gold quiet."},
     "London":  {"start": 8,  "end": 17, "color": "#2563EB", "markets": ["BTC/USD", "Gold (GLD)"],             "desc": "High volatility open. Best for Gold breakouts. BTC often trends."},
     "NY":      {"start": 13, "end": 22, "color": "#059669", "markets": ["NASDAQ (QQQ)", "Gold (GLD)", "BTC/USD"], "desc": "Highest volume. NASDAQ most active. Key US data at 13:30 UTC."},
     "Overlap": {"start": 13, "end": 17, "color": "#D97706", "markets": ["All"],                               "desc": "London/NY overlap. Peak volume and volatility across all markets."},
 }
-
 def get_current_session():
-    utc_now  = datetime.now(pytz.utc)
+    utc_now  = datetime.now(ZoneInfo("UTC"))
     utc_hour = utc_now.hour + utc_now.minute / 60
     active   = [name for name, s in SESSIONS.items() if s["start"] <= utc_hour < s["end"]]
     return (active if active else ["Off-hours"]), utc_now
-
-
 def session_banner():
     active, utc_now = get_current_session()
     utc_str = utc_now.strftime("%H:%M UTC")
-    ny_str  = utc_now.astimezone(pytz.timezone("America/New_York")).strftime("%H:%M ET")
-    lon_str = utc_now.astimezone(pytz.timezone("Europe/London")).strftime("%H:%M LDN")
-    tok_str = utc_now.astimezone(pytz.timezone("Asia/Tokyo")).strftime("%H:%M TKY")
-
+    ny_str  = utc_now.astimezone(ZoneInfo("America/New_York")).strftime("%H:%M ET")
+    lon_str = utc_now.astimezone(ZoneInfo("Europe/London")).strftime("%H:%M LDN")
+    tok_str = utc_now.astimezone(ZoneInfo("Asia/Tokyo")).strftime("%H:%M TKY")
     badges = ""
     best_mkts = []
     for sess in active:
@@ -106,7 +92,6 @@ def session_banner():
     best_mkts = list(dict.fromkeys(best_mkts))
     desc_text = " | ".join(SESSIONS[s]["desc"] for s in active if s in SESSIONS) or "Markets are quiet. Lower volume, wider spreads."
     mkt_line  = f'<div style="font-size:12px;color:#facc15;margin-top:6px;">Best markets now: {", ".join(best_mkts)}</div>' if best_mkts else ""
-
     st.markdown(
         f'<div style="background:#1a1a2e;border-radius:10px;padding:14px 18px;margin-bottom:12px;">'
         f'<div style="margin-bottom:8px;">{badges}</div>'
@@ -116,11 +101,9 @@ def session_banner():
         unsafe_allow_html=True,
     )
     return active
-
 # ─────────────────────────────────────────────
 # DATA FETCHERS
 # ─────────────────────────────────────────────
-
 @st.cache_data(ttl=30)
 def fetch_btc_price():
     try:
@@ -131,8 +114,6 @@ def fetch_btc_price():
     except Exception as e:
         st.warning(f"BTC price error: {e}")
         return None, None, None
-
-
 @st.cache_data(ttl=120)
 def fetch_btc_chart():
     try:
@@ -145,8 +126,6 @@ def fetch_btc_chart():
     except Exception as e:
         st.warning(f"BTC chart error: {e}")
         return pd.DataFrame()
-
-
 @st.cache_data(ttl=300)
 def fetch_polygon_stock(ticker: str, _key: str, days: int = 90):
     try:
@@ -165,8 +144,6 @@ def fetch_polygon_stock(ticker: str, _key: str, days: int = 90):
     except Exception as e:
         st.warning(f"Polygon {ticker} error: {e}")
         return pd.DataFrame()
-
-
 @st.cache_data(ttl=60)
 def fetch_polygon_snapshot(ticker: str, _key: str):
     try:
@@ -176,8 +153,6 @@ def fetch_polygon_snapshot(ticker: str, _key: str):
     except Exception as e:
         st.warning(f"Snapshot error: {e}")
         return {}
-
-
 @st.cache_data(ttl=60)
 def fetch_btc_polygon_rsi(_key: str):
     try:
@@ -189,8 +164,6 @@ def fetch_btc_polygon_rsi(_key: str):
     except Exception as e:
         st.warning(f"Polygon RSI error: {e}")
         return None
-
-
 @st.cache_data(ttl=120)
 def fetch_polymarket_btc():
     try:
@@ -212,11 +185,9 @@ def fetch_polymarket_btc():
     except Exception as e:
         st.warning(f"Polymarket error: {e}")
         return []
-
 # ─────────────────────────────────────────────
 # INDICATORS
 # ─────────────────────────────────────────────
-
 def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty or len(df) < 30:
         return df
@@ -254,8 +225,6 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
         np.where(df["rsi"] < 30, "OVERSOLD",
         np.where(df["rsi"] > 70, "OVERBOUGHT", "HOLD"))))))
     return df
-
-
 def get_signal_meta(signal, rsi, is_bull, macd_bull):
     if signal == "STRONG BUY":
         conf  = min(94, round(65 + (rsi - 45) * 0.4 + (8 if is_bull else 0)))
@@ -278,8 +247,6 @@ def get_signal_meta(signal, rsi, is_bull, macd_bull):
     else:
         conf, emoji = 50, "⚪"
     return max(42, conf), emoji
-
-
 def get_market_state(df):
     if df.empty:
         return None, None, 0, "HOLD", False, False
@@ -290,11 +257,9 @@ def get_market_state(df):
     is_bull  = bool(df["ma8"].iloc[-1] > df["ma21"].iloc[-1]) if "ma8" in df.columns else False
     mcd_bull = bool(macd > 0)
     return price, rsi, macd, sig, is_bull, mcd_bull
-
 # ─────────────────────────────────────────────
 # TRADE LEVELS
 # ─────────────────────────────────────────────
-
 def calc_trade_levels(price, signal, is_crypto, atr=None):
     if atr and atr > 0:
         stop_dist = atr * 1.5
@@ -316,11 +281,9 @@ def calc_trade_levels(price, signal, is_crypto, atr=None):
         "target_2": round(t2,    fmt),
         "rr":       1.5,
     }
-
 # ─────────────────────────────────────────────
 # BACKTESTING ENGINE
 # ─────────────────────────────────────────────
-
 def run_backtest(df, is_crypto=False):
     if df.empty or "signal" not in df.columns or len(df) < 30:
         return {}
@@ -333,28 +296,24 @@ def run_backtest(df, is_crypto=False):
     equity   = []
     stop_pct = 0.025 if is_crypto else 0.010
     t1_pct   = 0.040 if is_crypto else 0.015
-
     for i in range(1, len(df)):
         row      = df.iloc[i]
         prev_sig = df.iloc[i - 1]["signal"]
         price    = row["close"]
         val      = cash + position * price
         equity.append({"date": df.index[i], "equity": val})
-
         if position > 0 and entry_px > 0 and price <= entry_px * (1 - stop_pct):
             pnl  = (price - entry_px) * position
             cash += position * price
             trades.append({"type": "Long SL", "entry": entry_px, "exit": price, "pnl": pnl})
             position = 0; entry_px = 0
             continue
-
         if position < 0 and entry_px > 0 and price >= entry_px * (1 + stop_pct):
             pnl  = (entry_px - price) * abs(position)
             cash += abs(position) * price
             trades.append({"type": "Short SL", "entry": entry_px, "exit": price, "pnl": -abs(pnl)})
             position = 0; entry_px = 0
             continue
-
         if prev_sig in ("STRONG BUY", "BUY") and position == 0:
             units = (cash * 0.95) / price
             position = units; cash -= units * price; entry_px = price
@@ -371,16 +330,13 @@ def run_backtest(df, is_crypto=False):
             cash += abs(position) * price
             trades.append({"type": "Short", "entry": entry_px, "exit": price, "pnl": pnl})
             position = 0; entry_px = 0
-
     final_price = df.iloc[-1]["close"]
     if position != 0:
         pnl  = (final_price - entry_px) * position if position > 0 else (entry_px - final_price) * abs(position)
         cash += abs(position) * final_price
         trades.append({"type": "Open@end", "entry": entry_px, "exit": final_price, "pnl": pnl})
-
     if not trades:
         return {"error": "No trades generated."}
-
     eq_df    = pd.DataFrame(equity)
     trade_df = pd.DataFrame(trades)
     wins     = trade_df[trade_df["pnl"] > 0]
@@ -392,13 +348,11 @@ def run_backtest(df, is_crypto=False):
     pf_denom     = losses["pnl"].sum()
     profit_factor = abs(wins["pnl"].sum() / pf_denom) if pf_denom != 0 else 99.0
     bh_ret       = (df.iloc[-1]["close"] - df.iloc[0]["close"]) / df.iloc[0]["close"] * 100
-
     if not eq_df.empty:
         roll_max = eq_df["equity"].cummax()
         max_dd   = ((eq_df["equity"] - roll_max) / roll_max * 100).min()
     else:
         max_dd = 0
-
     return {
         "total_return":  round(total_ret,          2),
         "bh_return":     round(bh_ret,             2),
@@ -414,11 +368,9 @@ def run_backtest(df, is_crypto=False):
         "trade_list":    trade_df,
         "final_equity":  round(cash,               2),
     }
-
 # ─────────────────────────────────────────────
 # SIGNAL LOG
 # ─────────────────────────────────────────────
-
 def maybe_log_signal(market, signal, price, conf, levels, active_sessions):
     log  = st.session_state["signal_log"]
     last = next((e for e in reversed(log) if e["market"] == market), None)
@@ -437,11 +389,9 @@ def maybe_log_signal(market, signal, price, conf, levels, active_sessions):
             "rr":          levels["rr"],
             "conf":        conf,
         })
-
 # ─────────────────────────────────────────────
 # AI ANALYSIS
 # ─────────────────────────────────────────────
-
 def ai_analysis(market_name, price, change, rsi, macd, is_bull, macd_bull, signal, conf, anth_key, sessions):
     sess_ctx = ", ".join(sessions) if sessions else "Off-hours"
     if not anth_key:
@@ -470,11 +420,9 @@ def ai_analysis(market_name, price, change, rsi, macd, is_bull, macd_bull, signa
         return resp.json()["content"][0]["text"]
     except Exception as e:
         return f"AI analysis unavailable: {e}"
-
 # ─────────────────────────────────────────────
 # CHARTS
 # ─────────────────────────────────────────────
-
 def build_chart(df, title, color="#f2a900", levels=None):
     if df.empty:
         return None
@@ -513,8 +461,6 @@ def build_chart(df, title, color="#f2a900", levels=None):
                       xaxis_title="Date", yaxis_title="Price (USD)",
                       legend=dict(orientation="h", yanchor="bottom", y=1.02))
     return fig
-
-
 def build_equity_chart(eq_df, title):
     if eq_df.empty:
         return None
@@ -522,8 +468,6 @@ def build_equity_chart(eq_df, title):
     fig.add_hline(y=10000, line=dict(color="#888", width=1, dash="dot"), annotation_text="$10k start")
     fig.update_layout(height=300, template="plotly_dark", xaxis_title="", yaxis_title="Portfolio Value ($)")
     return fig
-
-
 def build_macd_chart(df, color):
     if df.empty or "macd" not in df.columns:
         return None
@@ -535,8 +479,6 @@ def build_macd_chart(df, color):
     fig.update_layout(height=220, template="plotly_dark", title="MACD",
                       legend=dict(orientation="h", yanchor="bottom", y=1.02))
     return fig
-
-
 def build_rsi_chart(df):
     if df.empty or "rsi" not in df.columns:
         return None
@@ -547,11 +489,9 @@ def build_rsi_chart(df):
     fig.add_hline(y=50, line=dict(color="#888",    width=1, dash="dot"))
     fig.update_layout(height=200, template="plotly_dark", title="RSI (14)", yaxis=dict(range=[0, 100]))
     return fig
-
 # ─────────────────────────────────────────────
 # FUNDED SIMULATOR
 # ─────────────────────────────────────────────
-
 def funded_sim(price, signal, is_crypto=True):
     target_pct = 0.04 if is_crypto else 0.015
     stop_pct   = 0.025 if is_crypto else 0.008
@@ -566,61 +506,47 @@ def funded_sim(price, signal, is_crypto=True):
         risk   = abs(price - stop) * size
         results.append((size, unit, "Long" if is_buy else "Short", pnl, target_pct * 100, risk))
     return results
-
 # ─────────────────────────────────────────────
 # FETCH ALL DATA
 # ─────────────────────────────────────────────
-
 btc_price, btc_chg, btc_vol = fetch_btc_price()
 df_btc    = compute_indicators(fetch_btc_chart())
 df_nasdaq = compute_indicators(fetch_polygon_stock("QQQ", POLYGON_KEY, days=90))
 df_gold   = compute_indicators(fetch_polygon_stock("GLD", POLYGON_KEY, days=90))
-
 _,         btc_rsi,  btc_macd,  btc_sig,  btc_bull,  btc_mcd_bull = get_market_state(df_btc)
 nq_price,  nq_rsi,   nq_macd,   nq_sig,   nq_bull,   nq_mcd_bull  = get_market_state(df_nasdaq)
 gld_price, gld_rsi,  gld_macd,  gld_sig,  gld_bull,  gld_mcd_bull = get_market_state(df_gold)
-
 nq_prev  = df_nasdaq["close"].iloc[-2] if len(df_nasdaq) > 1 else nq_price
 gld_prev = df_gold["close"].iloc[-2]   if len(df_gold)   > 1 else gld_price
 nq_chg   = ((nq_price  / nq_prev  - 1) * 100) if nq_price  and nq_prev  else None
 gld_chg  = ((gld_price / gld_prev - 1) * 100) if gld_price and gld_prev else None
 nq_vol   = df_nasdaq["volume"].iloc[-1] if not df_nasdaq.empty and "volume" in df_nasdaq else None
 gld_vol  = df_gold["volume"].iloc[-1]   if not df_gold.empty   and "volume" in df_gold   else None
-
 btc_atr  = df_btc["atr"].iloc[-1]    if not df_btc.empty    and "atr" in df_btc.columns    else None
 nq_atr   = df_nasdaq["atr"].iloc[-1] if not df_nasdaq.empty and "atr" in df_nasdaq.columns else None
 gld_atr  = df_gold["atr"].iloc[-1]   if not df_gold.empty   and "atr" in df_gold.columns   else None
-
 btc_conf, btc_emoji = get_signal_meta(btc_sig, btc_rsi or 50, btc_bull, btc_mcd_bull)
 nq_conf,  nq_emoji  = get_signal_meta(nq_sig,  nq_rsi  or 50, nq_bull,  nq_mcd_bull)
 gld_conf, gld_emoji = get_signal_meta(gld_sig, gld_rsi or 50, gld_bull, gld_mcd_bull)
-
 btc_levels  = calc_trade_levels(btc_price, btc_sig, True,  btc_atr) if btc_price else None
 nq_levels   = calc_trade_levels(nq_price,  nq_sig,  False, nq_atr)  if nq_price  else None
 gld_levels  = calc_trade_levels(gld_price, gld_sig, False, gld_atr) if gld_price else None
-
 active_sessions, _ = get_current_session()
-
 if btc_price  and btc_levels:  maybe_log_signal("BTC/USD",      btc_sig, btc_price,  btc_conf,  btc_levels,  active_sessions)
 if nq_price   and nq_levels:   maybe_log_signal("NASDAQ (QQQ)", nq_sig,  nq_price,   nq_conf,   nq_levels,   active_sessions)
 if gld_price  and gld_levels:  maybe_log_signal("Gold (GLD)",   gld_sig, gld_price,  gld_conf,  gld_levels,  active_sessions)
-
 # ─────────────────────────────────────────────
 # PAGE
 # ─────────────────────────────────────────────
-
 st.title("Multi-Market Trader  BTC  NASDAQ  Gold")
 active_sessions = session_banner()
-
 st.subheader("Live signals")
 sig_cols = st.columns(3)
-
 markets_meta = [
     ("BTC / USD",    btc_price, btc_chg, btc_sig, btc_conf, btc_emoji, btc_levels, "#f2a900", True),
     ("NASDAQ (QQQ)", nq_price,  nq_chg,  nq_sig,  nq_conf,  nq_emoji,  nq_levels,  "#378ADD", False),
     ("Gold (GLD)",   gld_price, gld_chg, gld_sig, gld_conf, gld_emoji, gld_levels, "#BA7517", False),
 ]
-
 for col, (name, price, chg, sig, conf, emoji, levels, accent, is_crypto) in zip(sig_cols, markets_meta):
     with col:
         is_buy  = "BUY"  in sig or sig == "OVERSOLD"
@@ -654,9 +580,7 @@ for col, (name, price, chg, sig, conf, emoji, levels, accent, is_crypto) in zip(
                 f'<b>Target 2:</b> <span style="color:#22c55e;">${levels["target_2"]:,}</span><br>'
                 f'<b>R:R:</b> 1:{levels["rr"]}'
                 f'</div>', unsafe_allow_html=True)
-
 st.divider()
-
 # Signal log
 st.subheader("Signal history (this session)")
 log = st.session_state["signal_log"]
@@ -681,22 +605,17 @@ if log:
     st.caption(f"{len(log)} signal(s) this session.")
 else:
     st.info("Signals appear here as they are detected on each refresh.")
-
 st.divider()
 st.subheader("Market detail and backtests")
 tab_btc, tab_nq, tab_gold, tab_sessions = st.tabs(["BTC / USD", "NASDAQ (QQQ)", "Gold (GLD)", "Trading Sessions"])
-
-
 def render_market_tab(name, df, price, chg, vol, rsi, macd, sig, conf, emoji,
                       is_bull, macd_bull, levels, is_crypto, chart_color,
                       active_sessions, snap=None, poly_rsi=None):
     if not price:
         st.warning("No data available.")
         return
-
     st.markdown(f"### {emoji} {sig}  |  Confidence {conf}%")
     st.progress(conf / 100)
-
     if levels:
         ca, cb, cc, cd, ce = st.columns(5)
         ca.metric("Direction", levels["direction"])
@@ -708,7 +627,6 @@ def render_market_tab(name, df, price, chg, vol, rsi, macd, sig, conf, emoji,
         ce.metric("Target 2",  f"${levels['target_2']:,}",
                   delta=f"+{abs(levels['target_2'] - price) / price * 100:.1f}%")
         st.caption(f"ATR-based stop  |  R:R 1:{levels['rr']}  |  {datetime.now().strftime('%H:%M:%S')}  |  Session: {', '.join(active_sessions)}")
-
     st.divider()
     st.subheader("Price chart")
     fig_price = build_chart(df, name, chart_color, levels)
@@ -717,7 +635,6 @@ def render_market_tab(name, df, price, chg, vol, rsi, macd, sig, conf, emoji,
     if fig_macd:  st.plotly_chart(fig_macd,  use_container_width=True)
     fig_rsi   = build_rsi_chart(df)
     if fig_rsi:   st.plotly_chart(fig_rsi,   use_container_width=True)
-
     st.divider()
     st.subheader("Backtest results (90 days)")
     bt = run_backtest(df, is_crypto)
@@ -731,7 +648,6 @@ def render_market_tab(name, df, price, chg, vol, rsi, macd, sig, conf, emoji,
         m4.metric("Total trades",      bt["total_trades"])
         m5.metric("Profit factor",     bt["profit_factor"])
         m6.metric("Max drawdown",      f"{bt['max_drawdown']:.1f}%")
-
         col_eq, col_tr = st.columns([2, 1])
         with col_eq:
             fig_eq = build_equity_chart(bt["equity_curve"], f"{name}  Equity curve ($10k start)")
@@ -746,10 +662,8 @@ def render_market_tab(name, df, price, chg, vol, rsi, macd, sig, conf, emoji,
                 tdf.style.applymap(_sp, subset=["PnL $"])
                          .format({"Entry":"${:,.2f}","Exit":"${:,.2f}","PnL $":"${:+,.2f}"}),
                 use_container_width=True, hide_index=True)
-
         with st.expander("Backtest disclaimer"):
             st.caption("Past results do not guarantee future performance. No slippage, commissions, or fees modelled. Do not trade based solely on backtest results.")
-
     st.divider()
     c1, c2 = st.columns(2)
     with c1:
@@ -766,7 +680,6 @@ def render_market_tab(name, df, price, chg, vol, rsi, macd, sig, conf, emoji,
             if "atr" in df.columns:
                 st.markdown(f"- **ATR (14):** ${df['atr'].iloc[-1]:,.2f}")
             st.markdown(f"- **Trend:** {'Uptrend' if is_bull else 'Downtrend'}")
-
     with c2:
         st.subheader("Crowd and sentiment")
         if is_crypto:
@@ -792,7 +705,6 @@ def render_market_tab(name, df, price, chg, vol, rsi, macd, sig, conf, emoji,
                 st.markdown(f"- **Intraday change:** {(day['c'] - day['o']) / day['o'] * 100:+.2f}%")
             if prev.get("c"): st.markdown(f"- **Prev close:** ${prev['c']:.2f}")
             if rsi: st.markdown(f"- **RSI sentiment:** {'Bullish' if rsi > 60 else 'Bearish' if rsi < 40 else 'Neutral'}")
-
     st.subheader("Funded account simulator")
     for size, unit, direction, pnl, pct, risk in funded_sim(price, sig, is_crypto):
         label = f"{size} {unit}  {direction}"
@@ -802,7 +714,6 @@ def render_market_tab(name, df, price, chg, vol, rsi, macd, sig, conf, emoji,
         else:
             st.error(f"{label}  ->  ${pnl:+,.2f} ({pct:.1f}%)  |  {info}")
     st.caption("Not financial advice.")
-
     st.subheader("AI analysis (Claude)")
     with st.spinner("Analyzing..."):
         analysis = ai_analysis(name, price, chg or 0, rsi or 50, macd,
@@ -810,26 +721,21 @@ def render_market_tab(name, df, price, chg, vol, rsi, macd, sig, conf, emoji,
     st.info(analysis)
     if not ANTHROPIC_KEY:
         st.caption("Add ANTHROPIC_KEY to secrets.toml for live Claude analysis.")
-
-
 with tab_btc:
     render_market_tab("BTC / USD", df_btc, btc_price, btc_chg, btc_vol,
                       btc_rsi, btc_macd, btc_sig, btc_conf, btc_emoji,
                       btc_bull, btc_mcd_bull, btc_levels, True, "#f2a900",
                       active_sessions, poly_rsi=fetch_btc_polygon_rsi(POLYGON_KEY))
-
 with tab_nq:
     render_market_tab("NASDAQ (QQQ)", df_nasdaq, nq_price, nq_chg, nq_vol,
                       nq_rsi, nq_macd, nq_sig, nq_conf, nq_emoji,
                       nq_bull, nq_mcd_bull, nq_levels, False, "#378ADD",
                       active_sessions, snap=fetch_polygon_snapshot("QQQ", POLYGON_KEY))
-
 with tab_gold:
     render_market_tab("Gold (GLD)", df_gold, gld_price, gld_chg, gld_vol,
                       gld_rsi, gld_macd, gld_sig, gld_conf, gld_emoji,
                       gld_bull, gld_mcd_bull, gld_levels, False, "#BA7517",
                       active_sessions, snap=fetch_polygon_snapshot("GLD", POLYGON_KEY))
-
 with tab_sessions:
     st.subheader("Trading session guide")
     st.markdown("All times in **UTC**.")
@@ -850,7 +756,6 @@ with tab_sessions:
             f'<div style="font-size:13px;color:#aaa;margin-top:4px;">Hours: {hours} | Best entry: {best_time} | Markets: {best_markets}</div>'
             f'<div style="font-size:13px;color:#ccc;margin-top:6px;">{desc}</div>'
             f'</div>', unsafe_allow_html=True)
-
     st.divider()
     st.subheader("Best entry times by market")
     st.markdown("""
@@ -861,7 +766,6 @@ with tab_sessions:
 | Gold (GLD) | London open + NY overlap | 08:00-10:00 or 13:30-15:00 | Reacts to EU/US data releases |
 | All markets | London/NY overlap | 13:00-17:00 | Tightest spreads, strongest signals |
 """)
-
     st.divider()
     st.subheader("Current session signal quality")
     quality_map = {"Overlap": "Very High", "NY": "High", "London": "Medium-High",
@@ -871,11 +775,9 @@ with tab_sessions:
         marker = "  <-- YOU ARE HERE" if is_now else ""
         q      = quality_map.get(name, "Medium")
         st.markdown(f"**{name}:** Signal quality = {q}{marker}")
-
 # ─────────────────────────────────────────────
 # AUTO REFRESH
 # ─────────────────────────────────────────────
-
 if auto_refresh:
     time.sleep(60)
     st.cache_data.clear()
