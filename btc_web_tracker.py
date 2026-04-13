@@ -599,7 +599,7 @@ if log:
                   "entry_price":"Entry $","stop":"Stop $","target_1":"T1 $","target_2":"T2 $","rr":"R:R","conf":"Conf %"}
     st.dataframe(
         df_log[cols_show].rename(columns=rename_map).style
-        .applymap(_ss, subset=["Signal"]).applymap(_sd, subset=["Dir"])
+        .map(_ss, subset=["Signal"]).map(_sd, subset=["Dir"])
         .format({"Entry $":"${:,.2f}","Stop $":"${:,.2f}","T1 $":"${:,.2f}","T2 $":"${:,.2f}","R:R":"1:{}","Conf %":"{}%"}),
         use_container_width=True, hide_index=True)
     st.caption(f"{len(log)} signal(s) this session.")
@@ -659,7 +659,7 @@ def render_market_tab(name, df, price, chg, vol, rsi, macd, sig, conf, emoji,
             def _sp(v):
                 return "color:#22c55e" if v > 0 else "color:#ef4444"
             st.dataframe(
-                tdf.style.applymap(_sp, subset=["PnL $"])
+                tdf.style.map(_sp, subset=["PnL $"])
                          .format({"Entry":"${:,.2f}","Exit":"${:,.2f}","PnL $":"${:+,.2f}"}),
                 use_container_width=True, hide_index=True)
         with st.expander("Backtest disclaimer"):
