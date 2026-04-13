@@ -66,11 +66,14 @@ if not POLYGON_KEY:
 
 # ── MARKETS ───────────────────────────────────────────────────────────────────
 MARKETS={
-    "BTC":{"label":"BTC / USD","poly_ticker":"X:BTCUSD","cg_id":"bitcoin","crypto":True,"color":"#f0a500"},
-    "ETH":{"label":"ETH / USD","poly_ticker":"X:ETHUSD","cg_id":"ethereum","crypto":True,"color":"#627eea"},
-    "NQ": {"label":"NASDAQ (QQQ)","poly_ticker":"QQQ","cg_id":None,"crypto":False,"color":"#378add"},
-    "GOLD":{"label":"Gold (GLD)","poly_ticker":"GLD","cg_id":None,"crypto":False,"color":"#ba7517"},
-    "SPY":{"label":"S&P 500 (SPY)","poly_ticker":"SPY","cg_id":None,"crypto":False,"color":"#22c55e"},
+    "BTC":  {"label":"BTC / USD",         "poly_ticker":"X:BTCUSD",  "cg_id":"bitcoin",  "crypto":True,  "color":"#f0a500"},
+    "NQ":   {"label":"NAS100 (NQ / QQQ)", "poly_ticker":"QQQ",       "cg_id":None,       "crypto":False, "color":"#378add"},
+    "GOLD": {"label":"Gold (XAUUSD)",     "poly_ticker":"GLD",       "cg_id":None,       "crypto":False, "color":"#ba7517"},
+    "EUR":  {"label":"EUR / USD",         "poly_ticker":"C:EURUSD",  "cg_id":None,       "crypto":False, "color":"#60a5fa"},
+    "ETH":  {"label":"ETH / USD",         "poly_ticker":"X:ETHUSD",  "cg_id":"ethereum", "crypto":True,  "color":"#627eea"},
+    "SPY":  {"label":"S&P 500 (SPY)",     "poly_ticker":"SPY",       "cg_id":None,       "crypto":False, "color":"#22c55e"},
+    "DXY":  {"label":"US Dollar (UUP)",   "poly_ticker":"UUP",       "cg_id":None,       "crypto":False, "color":"#a78bfa"},
+    "OIL":  {"label":"Crude Oil (USO)",   "poly_ticker":"USO",       "cg_id":None,       "crypto":False, "color":"#f87171"},
 }
 
 # ── 100 TRADER CONFIGS ────────────────────────────────────────────────────────
@@ -182,7 +185,7 @@ def fetch_polymarket():
                 pairs=sorted(zip(oc,[float(p) for p in pr]),key=lambda x:x[1],reverse=True)
                 ql=q.lower()
                 is_btc=any(w in ql for w in ["bitcoin","btc","crypto","ethereum","eth","coin"])
-                is_mac=any(w in ql for w in ["fed","rate","inflation","recession","nasdaq","s&p","stock","gdp"])
+                is_mac=any(w in ql for w in ["fed","rate","inflation","recession","nasdaq","s&p","stock","gdp","euro","dollar","forex","gold"])
                 tag="🟠 BTC/Crypto" if is_btc else "📈 Macro" if is_mac else "🌐 Other"
                 out.append({"question":q,"volume":vol,"liquidity":liq,"top_outcome":pairs[0][0],
                             "top_pct":round(pairs[0][1]*100,1),"pairs":list(pairs[:4]),
@@ -391,33 +394,27 @@ def simulate_traders(market_signals):
 def build_chart(df,title,color="#00ff88",show_sigs=True,bt=None):
     if df.empty: return None
 
-    # ── CRITICAL FIX: build volume colors as proper rgba() strings ──
     def vol_colors(dataframe):
         closes=dataframe["close"].tolist()
         opens=dataframe["open"].tolist() if "open" in dataframe.columns else closes[:]
         n=min(len(closes),len(opens))
-        # Must be "rgba(r,g,b,a)" format — hex with alpha (#rrggbbaa) rejected by Plotly Bar
         return ["rgba(0,204,102,0.6)" if float(closes[i])>=float(opens[i]) else "rgba(204,51,51,0.6)"
                 for i in range(n)]
 
     fig=make_subplots(rows=4,cols=1,shared_xaxes=True,row_heights=[0.50,0.18,0.18,0.14],
                       vertical_spacing=0.03,subplot_titles=["","MACD","RSI","Volume"])
-    # BB bands
     if "bb_upper" in df.columns:
         fig.add_trace(go.Scatter(x=df.index,y=df["bb_upper"],line=dict(color="rgba(120,120,220,0.25)",width=1),showlegend=False,name="BB Up"),row=1,col=1)
         fig.add_trace(go.Scatter(x=df.index,y=df["bb_lower"],line=dict(color="rgba(120,120,220,0.25)",width=1),fill="tonexty",fillcolor="rgba(100,100,200,0.05)",showlegend=False,name="BB Lo"),row=1,col=1)
-    # Price candles or line
     if "open" in df.columns and "high" in df.columns:
         fig.add_trace(go.Candlestick(x=df.index,open=df["open"],high=df["high"],low=df["low"],close=df["close"],
             name="Price",increasing_line_color="#00ff88",decreasing_line_color="#ff4444",
             increasing_fillcolor="rgba(0,255,136,0.2)",decreasing_fillcolor="rgba(255,68,68,0.2)"),row=1,col=1)
     else:
         fig.add_trace(go.Scatter(x=df.index,y=df["close"],name="Price",line=dict(color=color,width=2)),row=1,col=1)
-    # MAs
     for col_n,mc,lbl in [("ema8","#5DCAA5","EMA8"),("ema21","#ED93B1","EMA21"),("ema50","#F59E0B","EMA50")]:
         if col_n in df.columns:
             fig.add_trace(go.Scatter(x=df.index,y=df[col_n],name=lbl,line=dict(color=mc,width=1.2,dash="dot")),row=1,col=1)
-    # Signals
     if show_sigs and "signal" in df.columns:
         for sigs,sym,sz,sc2 in [
             (["BUY","STRONG BUY","OVERSOLD"],"triangle-up",10,"#00ff88"),
@@ -429,7 +426,6 @@ def build_chart(df,title,color="#00ff88",show_sigs=True,bt=None):
             if not sub.empty:
                 fig.add_trace(go.Scatter(x=sub.index,y=sub["close"],mode="markers",
                     marker=dict(symbol=sym,size=sz,color=sc2),name=sigs[0]),row=1,col=1)
-    # BT trades overlay
     if bt and "trade_list" in bt and not bt["trade_list"].empty:
         for _,tr in bt["trade_list"].iterrows():
             try:
@@ -437,19 +433,16 @@ def build_chart(df,title,color="#00ff88",show_sigs=True,bt=None):
                     marker=dict(symbol="circle",size=9,color="#00ff88" if tr["pnl"]>0 else "#ff4444",opacity=0.8),
                     showlegend=False),row=1,col=1)
             except: pass
-    # MACD
     if "macd" in df.columns:
         mhist=df["macd_hist"].fillna(0).tolist()
         mc2=["rgba(0,204,102,0.8)" if v>=0 else "rgba(204,51,51,0.8)" for v in mhist]
         fig.add_trace(go.Bar(x=df.index,y=df["macd_hist"],marker_color=mc2,name="MACD Hist",showlegend=False),row=2,col=1)
         fig.add_trace(go.Scatter(x=df.index,y=df["macd"],line=dict(color=color,width=1.5),name="MACD"),row=2,col=1)
         fig.add_trace(go.Scatter(x=df.index,y=df["macd_signal"],line=dict(color="#ED93B1",width=1.5),name="Signal"),row=2,col=1)
-    # RSI
     if "rsi" in df.columns:
         fig.add_trace(go.Scatter(x=df.index,y=df["rsi"],line=dict(color="#a78bfa",width=2),name="RSI"),row=3,col=1)
         for lvl,lc in [(70,"rgba(255,68,68,0.6)"),(30,"rgba(0,255,136,0.6)"),(50,"rgba(80,80,80,0.5)")]:
             fig.add_hline(y=lvl,line=dict(color=lc,width=1,dash="dash"),row=3,col=1)
-    # Volume — THE FIX: use rgba() strings, NOT hex-with-alpha
     if "volume" in df.columns:
         vc=vol_colors(df)
         n=min(len(df.index),len(df["volume"]),len(vc))
@@ -521,7 +514,7 @@ def generate_notes(market_signals,fg,on_chain,sessions,ak):
                   "messages":[{"role":"user","content":
                     f"You are Nigel, a friendly trading coach. Markets: {summ}. {fg_s}. Sessions: {', '.join(sessions)}. "
                     f"Write 5 short plain-English alerts like texting a mate. No jargon. "
-                    f"Return ONLY JSON array: [{{'type':'watch|buy|sell|info','market':'BTC|ETH|NQ|GOLD|SPY','text':'...'}}]"}]},timeout=25)
+                    f"Return ONLY JSON array: [{{'type':'watch|buy|sell|info','market':'BTC|ETH|NQ|GOLD|EUR|SPY|DXY|OIL','text':'...'}}]"}]},timeout=25)
         for n in json.loads(resp.json()["content"][0]["text"].strip().replace("```json","").replace("```","")):
             push_note(n.get("type","info"),n.get("market","BTC"),n.get("text",""))
     except:
@@ -563,9 +556,13 @@ with st.sidebar:
             st.cache_data.clear(); st.rerun()
     st.divider()
     auto_refresh=st.toggle("Auto-refresh (90s)",value=False)
-    selected_markets=st.multiselect("Markets",["BTC","ETH","NQ","GOLD","SPY"],default=["BTC","NQ","GOLD"])
+    selected_markets=st.multiselect(
+        "Markets",
+        ["BTC","NQ","GOLD","EUR","ETH","SPY","DXY","OIL"],
+        default=["BTC","NQ","GOLD","EUR"]
+    )
     bt_days=st.slider("Backtest window (days)",30,365,90)
-    note_filter=st.selectbox("Filter alerts",["ALL","BTC","ETH","NQ","GOLD","SPY"])
+    note_filter=st.selectbox("Filter alerts",["ALL","BTC","NQ","GOLD","EUR","ETH","SPY","DXY","OIL"])
     st.divider()
     if st.button("🔄 Refresh"): st.cache_data.clear(); st.rerun()
     if st.button("🗑 Clear alerts"): st.session_state["notes"]=[]; st.rerun()
@@ -575,7 +572,7 @@ with st.sidebar:
     st.caption(f"Nigel · {datetime.now().strftime('%H:%M:%S')}")
 
 # ── FETCH DATA ────────────────────────────────────────────────────────────────
-if not selected_markets: selected_markets=["BTC","NQ","GOLD"]
+if not selected_markets: selected_markets=["BTC","NQ","GOLD","EUR"]
 with st.spinner("Nigel is loading market data…"):
     all_dfs={}
     for mk in selected_markets:
@@ -636,7 +633,8 @@ for col,mk in zip(pcols,selected_markets):
         s=sig.get("signal","HOLD"); c=sig.get("conf",50); r=sig.get("rsi",50)
         is_b="BUY" in s or s=="OVERSOLD"; is_s="SELL" in s or s=="OVERBOUGHT"
         bc="#00ff88" if is_b else "#ff4444" if is_s else "#1a1a30"; cc="#00ff88" if chg>=0 else "#ff4444"
-        px=f"${p:,.0f}" if mk in ("BTC","ETH") else f"${p:,.2f}"; sc="sig-buy" if is_b else "sig-sell" if is_s else "sig-hold"
+        px=f"${p:,.0f}" if mk in ("BTC","ETH") else f"${p:,.4f}" if mk=="EUR" else f"${p:,.2f}"
+        sc="sig-buy" if is_b else "sig-sell" if is_s else "sig-hold"
         st.markdown(f'<div style="border:2px solid {bc};border-radius:12px;padding:14px;background:#0a0a18;margin-bottom:4px">'
                     f'<div style="font-size:10px;color:#555">{info["label"]}</div>'
                     f'<div style="font-size:22px;font-weight:700;color:{info["color"]};font-family:JetBrains Mono,monospace">{px}</div>'
@@ -658,11 +656,11 @@ with t_grand:
         st.info("Running ensemble on first load — refresh in a moment.")
     else:
         sess_now=active_sessions[0] if active_sessions else "Off-hours"
-        sw={"Tokyo":{"BTC":1.3,"ETH":1.2,"NQ":0.5,"GOLD":0.7,"SPY":0.5},
-            "London":{"BTC":1.1,"ETH":1.0,"NQ":0.8,"GOLD":1.4,"SPY":0.8},
-            "New York":{"BTC":1.0,"ETH":0.9,"NQ":1.4,"GOLD":1.1,"SPY":1.4},
-            "Overlap":{"BTC":1.2,"ETH":1.1,"NQ":1.2,"GOLD":1.2,"SPY":1.2},
-            "Off-hours":{"BTC":0.7,"ETH":0.7,"NQ":0.3,"GOLD":0.5,"SPY":0.3}}.get(sess_now,{})
+        sw={"Tokyo":{"BTC":1.3,"ETH":1.2,"NQ":0.5,"GOLD":0.7,"EUR":0.8,"SPY":0.5,"DXY":0.8,"OIL":0.6},
+            "London":{"BTC":1.1,"ETH":1.0,"NQ":0.8,"GOLD":1.4,"EUR":1.4,"SPY":0.8,"DXY":1.2,"OIL":1.1},
+            "New York":{"BTC":1.0,"ETH":0.9,"NQ":1.4,"GOLD":1.1,"EUR":1.2,"SPY":1.4,"DXY":1.3,"OIL":1.2},
+            "Overlap":{"BTC":1.2,"ETH":1.1,"NQ":1.2,"GOLD":1.2,"EUR":1.3,"SPY":1.2,"DXY":1.2,"OIL":1.1},
+            "Off-hours":{"BTC":0.7,"ETH":0.7,"NQ":0.3,"GOLD":0.5,"EUR":0.4,"SPY":0.3,"DXY":0.4,"OIL":0.4}}.get(sess_now,{})
         scored={mk:{"score":grand[mk]["avg_sharpe"]*sw.get(mk,1.0),"conf":min(99,round(grand[mk]["conf"]*sw.get(mk,1.0))),
                     "signal":grand[mk]["signal"],"rsi":grand[mk]["rsi"],"rr":grand[mk]["rr"],"avg_ret":grand[mk]["avg_ret"]}
                 for mk in grand if mk in selected_markets}
@@ -678,9 +676,9 @@ with t_grand:
                         f'</div>',unsafe_allow_html=True)
         now_h=datetime.now(ZoneInfo("UTC")).hour
         plan=[(0,8,"00:00–08:00","Tokyo","BTC ETH","Low volume. Crypto only. Trade small.","#7C3AED"),
-              (8,13,"08:00–13:00","London","GOLD BTC","EU data. Gold + BTC breakouts form.","#2563EB"),
+              (8,13,"08:00–13:00","London","GOLD BTC EUR","EU data. Gold, BTC, EUR/USD breakouts form.","#2563EB"),
               (13,17,"13:00–17:00","NY+London Overlap","ALL","🔥 Best window. Use your best signals here.","#D97706"),
-              (17,22,"17:00–22:00","New York","NQ SPY BTC","US afternoon. Trail stops tighter.","#059669"),
+              (17,22,"17:00–22:00","New York","NQ SPY BTC EUR","US afternoon. Trail stops tighter.","#059669"),
               (22,24,"22:00–00:00","Off-hours","—","Very thin. Review tomorrow's plan.","#555")]
         st.markdown("### 📅 Today's Plan")
         for h0,h1,times,sname,mkts,tip,sc2 in plan:
@@ -700,7 +698,7 @@ with t_grand:
                                "BB Break":"✅" if gs["use_bb"] else "❌","RSI Extreme":"✅" if gs["use_extreme"] else "❌",
                                "Strong Only":"✅" if gs["use_strong"] else "❌",
                                "Avg Return":f"{gs['avg_ret']:+.1f}%","Avg WR":f"{gs['avg_wr']:.0f}%","Sharpe":f"{gs['avg_sharpe']:.2f}"})
-        if param_rows: st.dataframe(pd.DataFrame(param_rows),width='stretch',hide_index=True)
+        if param_rows: st.dataframe(pd.DataFrame(param_rows),use_container_width=True,hide_index=True)
 
 # ── POLYMARKET ────────────────────────────────────────────────────────────────
 with t_poly:
@@ -711,7 +709,8 @@ with t_poly:
     else:
         ptab_all,ptab_btc,ptab_mac=st.tabs(["📊 All","🟠 BTC/Crypto","📈 Macro"])
 
-        def render_poly(mkts_list,label=""):
+        # ── KEY FIX: unique ns param prevents duplicate element key crash ──
+        def render_poly(mkts_list, label="", ns="all"):
             if not mkts_list: st.info(f"No {label} markets right now."); return
             total_vol=sum(m["volume"] for m in mkts_list)
             st.markdown(f'<div style="color:#555;font-size:12px;margin-bottom:10px">Total volume: <b style="color:#00d4ff">${total_vol/1e6:.2f}M</b></div>',unsafe_allow_html=True)
@@ -723,8 +722,8 @@ with t_poly:
                 textposition="auto",textfont=dict(size=10,color="#fff")))
             fig.update_layout(height=340,template="plotly_dark",title="Volume by market ($k)",paper_bgcolor="#080818",
                 plot_bgcolor="#0a0a18",xaxis_title="Volume ($k)",margin=dict(l=0,r=0,t=40,b=0))
-            st.plotly_chart(fig,width='stretch',key='pc1')
-            # BTC consensus
+            # ── unique key per tab namespace ──
+            st.plotly_chart(fig,use_container_width=True,key=f"poly_bar_{ns}")
             btc_rel=[m for m in mkts_list if m["is_btc"] and m["volume"]>1000]
             if btc_rel:
                 bullish_pcts=[m["top_pct"] for m in btc_rel if m["top_outcome"].lower() in ("yes","higher","up","above","bull")]
@@ -764,9 +763,9 @@ with t_poly:
 💡 High volume = smarter money = more reliable signal
 </div>""",unsafe_allow_html=True)
 
-        with ptab_all: render_poly(poly_mkts)
-        with ptab_btc: render_poly([m for m in poly_mkts if m["is_btc"]],"BTC/Crypto")
-        with ptab_mac: render_poly([m for m in poly_mkts if m["is_macro"]],"Macro")
+        with ptab_all:  render_poly(poly_mkts,                                     ns="all")
+        with ptab_btc:  render_poly([m for m in poly_mkts if m["is_btc"]],  "BTC/Crypto", ns="btc")
+        with ptab_mac:  render_poly([m for m in poly_mkts if m["is_macro"]], "Macro",      ns="mac")
 
 # ── ALERTS ────────────────────────────────────────────────────────────────────
 with t_alerts:
@@ -788,7 +787,7 @@ with t_alerts:
             text=[str(v) for v in fg["history"]],textposition="outside"))
         fig_fg.update_layout(height=180,template="plotly_dark",paper_bgcolor="#080818",plot_bgcolor="#0a0a18",
             margin=dict(l=0,r=0,t=10,b=0),xaxis_title="Days ago",yaxis=dict(range=[0,120]))
-        st.plotly_chart(fig_fg,width='stretch',key='pc2')
+        st.plotly_chart(fig_fg,use_container_width=True,key="fg_chart")
     if on_chain:
         st.divider(); st.markdown("**BTC on-chain**")
         c1,c2,c3,c4=st.columns(4)
@@ -808,14 +807,14 @@ with t_traders:
     df_sc=pd.DataFrame(rows).sort_values("P&L",ascending=False).reset_index(drop=True); df_sc.index+=1
     st.dataframe(df_sc.style.format({"Balance":"${:,.0f}","P&L":"${:+,.0f}","Win%":"{}%","DD%":"{}%"})
         .map(lambda v:"color:#00ff88;font-weight:700" if isinstance(v,(int,float)) and v>0 else "color:#ff4444;font-weight:700" if isinstance(v,(int,float)) and v<0 else "",subset=["P&L"]),
-        width='stretch')
+        use_container_width=True)
     TCOLORS={"Macro Maya":"#00ff88","Momentum Mike":"#00d4ff","Scalp Sam":"#f0a500","Trend Tina":"#a78bfa","Contrarian Carl":"#ff6b6b"}
     hfig=go.Figure()
     for tr in TRADERS:
         if len(tr["history"])>1:
             hfig.add_trace(go.Scatter(y=tr["history"],name=f"{tr['emoji']} {tr['name']} ({(tr['balance']-25000)/25000*100:+.1f}%)",line=dict(color=TCOLORS.get(tr["name"],"#fff"),width=2)))
     hfig.add_hline(y=25000,line=dict(color="#444",width=1,dash="dot")); hfig.update_layout(height=260,template="plotly_dark",paper_bgcolor="#080818",plot_bgcolor="#0a0a18",margin=dict(l=0,r=0,t=30,b=0),legend=dict(orientation="h",y=1.05))
-    st.plotly_chart(hfig,width='stretch',key='pc3')
+    st.plotly_chart(hfig,use_container_width=True,key="trader_history")
     ttabs=st.tabs([f"{tr['emoji']} {tr['name']}" for tr in TRADERS])
     for ttab,tr in zip(ttabs,TRADERS):
         with ttab:
@@ -830,7 +829,7 @@ with t_traders:
                 mk=pos["market"]; sig=market_signals.get(mk,{}); cp=sig.get("price",pos["entry"])
                 ur=(cp-pos["entry"])*pos["units"] if pos["dir"]=="long" else (pos["entry"]-cp)*pos["units"]
                 uc="#00ff88" if ur>=0 else "#ff4444"; info=MARKETS.get(mk,{})
-                fmt="0f" if info.get("crypto") else ".2f"
+                fmt="0f" if info.get("crypto") else ".4f" if mk=="EUR" else ".2f"
                 st.markdown(f'<div class="{"pos-long" if pos["dir"]=="long" else "pos-short"}">'
                             f'<b>{info.get("label",mk)} {pos["dir"].upper()}</b> Entry${pos["entry"]:{fmt}}→${cp:{fmt}}<br>'
                             f'Stop<span style="color:#ff4444">${pos["stop"]:{fmt}}</span> Target<span style="color:#00ff88">${pos["tp"]:{fmt}}</span> '
@@ -840,7 +839,7 @@ with t_traders:
                 tdf2=pd.DataFrame(tr["trades"][-10:][::-1]); show=[c for c in ["time","market","dir","entry","exit","pnl","result","reason"] if c in tdf2.columns]
                 st.dataframe(tdf2[show].style.format({c:"${:,.2f}" for c in ["entry","exit","pnl"] if c in tdf2.columns})
                     .map(lambda v:"color:#00ff88" if v=="win" else "color:#ff4444",subset=["result"] if "result" in tdf2.columns else []),
-                    width='stretch',hide_index=True)
+                    use_container_width=True,hide_index=True)
 
 # ── BACKTEST ──────────────────────────────────────────────────────────────────
 with t_bt:
@@ -873,9 +872,9 @@ with t_bt:
                 df_c.insert(0,"#",["🥇","🥈","🥉","4️⃣","5️⃣"][:len(df_c)])
                 st.dataframe(df_c.style.format({"Return%":"{:+.1f}%","B&H%":"{:+.1f}%","Win%":"{:.0f}%","MaxDD%":"{:.1f}%","Sharpe":"{:.2f}","PF":"{:.2f}"})
                     .highlight_max(subset=["Return%","Win%","Sharpe"],color="#1a3a1a").highlight_min(subset=["MaxDD%"],color="#1a3a1a"),
-                    width='stretch',hide_index=True)
+                    use_container_width=True,hide_index=True)
             ef=build_equity_chart(all_bts)
-            if ef: st.plotly_chart(ef,width='stretch',key='pc4')
+            if ef: st.plotly_chart(ef,use_container_width=True,key="bt_equity_compare")
         sc2=st.columns(8)
         cr="#00ff88" if bt["total_return"]>0 else "#ff4444"
         for col,(val,lbl,vc) in zip(sc2,[(f"{bt['total_return']:+.1f}%","Strategy",cr),(f"{bt['bh_return']:+.1f}%","Buy&Hold","#aaa"),
@@ -887,21 +886,21 @@ with t_bt:
         a1.metric("Avg win",f"${bt['avg_win']:+,.2f}"); a2.metric("Avg loss",f"${bt['avg_loss']:+,.2f}")
         a3.metric("Win streak",bt["max_win_streak"]); a4.metric("Loss streak",bt["max_loss_streak"])
         fig_main=build_chart(df_bt,f"{bt_mk} — {bt.get('label','')}",MARKETS[bt_mk]["color"],show_sigs,bt)
-        if fig_main: st.plotly_chart(fig_main,width='stretch',key='pc5')
+        if fig_main: st.plotly_chart(fig_main,use_container_width=True,key="bt_main_chart")
         c_eq,c_mo=st.columns([2,1])
         with c_eq:
             ef2=build_equity_chart(all_bts)
-            if ef2: st.plotly_chart(ef2,width='stretch',key='pc6')
+            if ef2: st.plotly_chart(ef2,use_container_width=True,key="bt_equity_main")
         with c_mo:
             mf=build_monthly(bt)
-            if mf: st.plotly_chart(mf,width='stretch',key='pc7')
+            if mf: st.plotly_chart(mf,use_container_width=True,key="bt_monthly")
         ddf=build_drawdown(bt)
-        if ddf: st.plotly_chart(ddf,width='stretch',key='pc8')
+        if ddf: st.plotly_chart(ddf,use_container_width=True,key="bt_drawdown")
         with st.expander("📋 Full trade log"):
             tdf3=bt["trade_list"].copy(); tdf3["pnl%"]=tdf3["pnl"]/10000*100
             st.dataframe(tdf3.style.format({"entry":"${:,.2f}","exit":"${:,.2f}","pnl":"${:+,.2f}","pnl%":"{:+.2f}%"})
                 .map(lambda v:"color:#00ff88" if isinstance(v,(int,float)) and v>0 else "color:#ff4444",subset=["pnl"]),
-                width='stretch',hide_index=True)
+                use_container_width=True,hide_index=True)
         with st.expander("⚠️ Disclaimer"): st.caption("Past results don't guarantee future performance. No fees or slippage modelled.")
     else: st.info("Select a market and click **▶ Run Backtest**.")
 
@@ -930,16 +929,16 @@ with t_ensemble:
             fig_lb.add_trace(go.Bar(x=trets,y=names,orientation="h",marker_color=["rgba(0,204,102,0.8)" if r>=0 else "rgba(204,51,51,0.8)" for r in trets],text=[f"{r:+.1f}%" for r in trets],textposition="auto"),row=1,col=1)
             fig_lb.add_trace(go.Bar(x=tsharpes,y=names,orientation="h",marker_color=["rgba(167,139,250,0.8)" if s>=0 else "rgba(255,107,107,0.8)" for s in tsharpes],text=[f"{s:.2f}" for s in tsharpes],textposition="auto"),row=1,col=2)
             fig_lb.update_layout(height=480,template="plotly_dark",paper_bgcolor="#080818",plot_bgcolor="#0a0a18",showlegend=False,margin=dict(l=0,r=0,t=40,b=0))
-            st.plotly_chart(fig_lb,width='stretch',key='pc9')
+            st.plotly_chart(fig_lb,use_container_width=True,key="ensemble_lb")
             fig_dist=go.Figure(go.Histogram(x=rets,nbinsx=20,marker_color=["rgba(0,204,102,0.7)" if r>=0 else "rgba(204,51,51,0.7)" for r in rets]))
             fig_dist.add_vline(x=0,line=dict(color="#555",width=1,dash="dash")); fig_dist.add_vline(x=np.mean(rets),line=dict(color="#00d4ff",width=2),annotation_text=f"Mean {np.mean(rets):.1f}%")
             fig_dist.update_layout(height=230,template="plotly_dark",title="Return distribution — 100 AIs",paper_bgcolor="#080818",plot_bgcolor="#0a0a18",margin=dict(l=0,r=0,t=50,b=0))
-            st.plotly_chart(fig_dist,width='stretch',key='pc10')
+            st.plotly_chart(fig_dist,use_container_width=True,key="ensemble_dist")
             with st.expander("📋 Full table"):
                 df_ens=pd.DataFrame([{"Rank":i+1,"Trader":r["name"],"Return%":r["total_return"],"WR%":r["win_rate"],"Sharpe":r["sharpe"],"MaxDD%":r["max_drawdown"],"PF":r["profit_factor"],"Trades":r["total_trades"],"RSI":f"{r['rsi_range'][0]}-{r['rsi_range'][1]}","RR":r["rr"],"Score":round(r["score"],3)} for i,r in enumerate(res)])
                 st.dataframe(df_ens.style.format({"Return%":"{:+.1f}%","WR%":"{:.0f}%","Sharpe":"{:.2f}","MaxDD%":"{:.1f}%","PF":"{:.2f}","Score":"{:.3f}"})
                     .highlight_max(subset=["Return%","WR%","Sharpe","Score"],color="#1a3a1a").highlight_min(subset=["MaxDD%"],color="#1a3a1a"),
-                    width='stretch',hide_index=True)
+                    use_container_width=True,hide_index=True)
 
 # ── SESSIONS ──────────────────────────────────────────────────────────────────
 with t_sessions:
@@ -947,8 +946,8 @@ with t_sessions:
     utc_now=datetime.now(ZoneInfo("UTC")); hf_now=utc_now.hour+utc_now.minute/60
     for name,hours,best,mkts,desc,sc2,h0,h1 in [
         ("Tokyo","00:00–09:00","03:00–08:00","BTC, ETH","Low volume. BTC drifts. Avoid stocks.","#7C3AED",0,9),
-        ("London","08:00–17:00","08:00–10:00","Gold, BTC","Breakouts at open. Gold reacts to EU data.","#2563EB",8,17),
-        ("New York","13:00–22:00","13:30–16:00","NQ, SPY, Gold, BTC","Highest volume. US open spikes everything.","#059669",13,22),
+        ("London","08:00–17:00","08:00–10:00","Gold, BTC, EUR/USD","Breakouts at open. Gold + EUR react to EU data.","#2563EB",8,17),
+        ("New York","13:00–22:00","13:30–16:00","NQ, SPY, Gold, BTC, EUR/USD","Highest volume. US open spikes everything.","#059669",13,22),
         ("Overlap","13:00–17:00","13:00–15:00","All","PRIME TIME. Tightest spreads. Sharpest signals.","#D97706",13,17),
         ("Off-hours","22:00–00:00","Avoid","None","Very thin. Stay out.","#555",22,24)]:
         is_now=h0<=hf_now<h1; border=sc2 if is_now else "#1a1a30"
@@ -963,9 +962,12 @@ with t_sessions:
 |---|---|---|---|
 | BTC | London or Overlap | 08:00–10:00 / 13:00–16:00 | Peak momentum |
 | ETH | Same as BTC | 08:00–10:00 / 13:00–16:00 | Follows BTC |
-| NASDAQ | New York | 13:30–16:00 | After US open |
+| NAS100 | New York | 13:30–16:00 | After US open |
 | Gold | London + Overlap | 08:00–10:00 / 13:30–15:00 | EU/US data |
+| EUR/USD | London + Overlap | 08:00–12:00 / 13:00–16:00 | Highest forex liquidity |
 | S&P 500 | New York | 13:30–15:30 | US open liquidity |
+| US Dollar | New York | 13:30–16:00 | USD strength after data |
+| Crude Oil | New York | 14:30–16:00 | EIA report + US session |
 """)
 
 if auto_refresh:
