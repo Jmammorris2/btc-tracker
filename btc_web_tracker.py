@@ -700,7 +700,7 @@ with t_grand:
                                "BB Break":"✅" if gs["use_bb"] else "❌","RSI Extreme":"✅" if gs["use_extreme"] else "❌",
                                "Strong Only":"✅" if gs["use_strong"] else "❌",
                                "Avg Return":f"{gs['avg_ret']:+.1f}%","Avg WR":f"{gs['avg_wr']:.0f}%","Sharpe":f"{gs['avg_sharpe']:.2f}"})
-        if param_rows: st.dataframe(pd.DataFrame(param_rows),use_container_width=True,hide_index=True)
+        if param_rows: st.dataframe(pd.DataFrame(param_rows),width='stretch',hide_index=True)
 
 # ── POLYMARKET ────────────────────────────────────────────────────────────────
 with t_poly:
@@ -723,7 +723,7 @@ with t_poly:
                 textposition="auto",textfont=dict(size=10,color="#fff")))
             fig.update_layout(height=340,template="plotly_dark",title="Volume by market ($k)",paper_bgcolor="#080818",
                 plot_bgcolor="#0a0a18",xaxis_title="Volume ($k)",margin=dict(l=0,r=0,t=40,b=0))
-            st.plotly_chart(fig,use_container_width=True)
+            st.plotly_chart(fig,width='stretch',key='pc1')
             # BTC consensus
             btc_rel=[m for m in mkts_list if m["is_btc"] and m["volume"]>1000]
             if btc_rel:
@@ -788,7 +788,7 @@ with t_alerts:
             text=[str(v) for v in fg["history"]],textposition="outside"))
         fig_fg.update_layout(height=180,template="plotly_dark",paper_bgcolor="#080818",plot_bgcolor="#0a0a18",
             margin=dict(l=0,r=0,t=10,b=0),xaxis_title="Days ago",yaxis=dict(range=[0,120]))
-        st.plotly_chart(fig_fg,use_container_width=True)
+        st.plotly_chart(fig_fg,width='stretch',key='pc2')
     if on_chain:
         st.divider(); st.markdown("**BTC on-chain**")
         c1,c2,c3,c4=st.columns(4)
@@ -808,14 +808,14 @@ with t_traders:
     df_sc=pd.DataFrame(rows).sort_values("P&L",ascending=False).reset_index(drop=True); df_sc.index+=1
     st.dataframe(df_sc.style.format({"Balance":"${:,.0f}","P&L":"${:+,.0f}","Win%":"{}%","DD%":"{}%"})
         .map(lambda v:"color:#00ff88;font-weight:700" if isinstance(v,(int,float)) and v>0 else "color:#ff4444;font-weight:700" if isinstance(v,(int,float)) and v<0 else "",subset=["P&L"]),
-        use_container_width=True)
+        width='stretch')
     TCOLORS={"Macro Maya":"#00ff88","Momentum Mike":"#00d4ff","Scalp Sam":"#f0a500","Trend Tina":"#a78bfa","Contrarian Carl":"#ff6b6b"}
     hfig=go.Figure()
     for tr in TRADERS:
         if len(tr["history"])>1:
             hfig.add_trace(go.Scatter(y=tr["history"],name=f"{tr['emoji']} {tr['name']} ({(tr['balance']-25000)/25000*100:+.1f}%)",line=dict(color=TCOLORS.get(tr["name"],"#fff"),width=2)))
     hfig.add_hline(y=25000,line=dict(color="#444",width=1,dash="dot")); hfig.update_layout(height=260,template="plotly_dark",paper_bgcolor="#080818",plot_bgcolor="#0a0a18",margin=dict(l=0,r=0,t=30,b=0),legend=dict(orientation="h",y=1.05))
-    st.plotly_chart(hfig,use_container_width=True)
+    st.plotly_chart(hfig,width='stretch',key='pc3')
     ttabs=st.tabs([f"{tr['emoji']} {tr['name']}" for tr in TRADERS])
     for ttab,tr in zip(ttabs,TRADERS):
         with ttab:
@@ -840,7 +840,7 @@ with t_traders:
                 tdf2=pd.DataFrame(tr["trades"][-10:][::-1]); show=[c for c in ["time","market","dir","entry","exit","pnl","result","reason"] if c in tdf2.columns]
                 st.dataframe(tdf2[show].style.format({c:"${:,.2f}" for c in ["entry","exit","pnl"] if c in tdf2.columns})
                     .map(lambda v:"color:#00ff88" if v=="win" else "color:#ff4444",subset=["result"] if "result" in tdf2.columns else []),
-                    use_container_width=True,hide_index=True)
+                    width='stretch',hide_index=True)
 
 # ── BACKTEST ──────────────────────────────────────────────────────────────────
 with t_bt:
@@ -873,9 +873,9 @@ with t_bt:
                 df_c.insert(0,"#",["🥇","🥈","🥉","4️⃣","5️⃣"][:len(df_c)])
                 st.dataframe(df_c.style.format({"Return%":"{:+.1f}%","B&H%":"{:+.1f}%","Win%":"{:.0f}%","MaxDD%":"{:.1f}%","Sharpe":"{:.2f}","PF":"{:.2f}"})
                     .highlight_max(subset=["Return%","Win%","Sharpe"],color="#1a3a1a").highlight_min(subset=["MaxDD%"],color="#1a3a1a"),
-                    use_container_width=True,hide_index=True)
+                    width='stretch',hide_index=True)
             ef=build_equity_chart(all_bts)
-            if ef: st.plotly_chart(ef,use_container_width=True)
+            if ef: st.plotly_chart(ef,width='stretch',key='pc4')
         sc2=st.columns(8)
         cr="#00ff88" if bt["total_return"]>0 else "#ff4444"
         for col,(val,lbl,vc) in zip(sc2,[(f"{bt['total_return']:+.1f}%","Strategy",cr),(f"{bt['bh_return']:+.1f}%","Buy&Hold","#aaa"),
@@ -887,21 +887,21 @@ with t_bt:
         a1.metric("Avg win",f"${bt['avg_win']:+,.2f}"); a2.metric("Avg loss",f"${bt['avg_loss']:+,.2f}")
         a3.metric("Win streak",bt["max_win_streak"]); a4.metric("Loss streak",bt["max_loss_streak"])
         fig_main=build_chart(df_bt,f"{bt_mk} — {bt.get('label','')}",MARKETS[bt_mk]["color"],show_sigs,bt)
-        if fig_main: st.plotly_chart(fig_main,use_container_width=True)
+        if fig_main: st.plotly_chart(fig_main,width='stretch',key='pc5')
         c_eq,c_mo=st.columns([2,1])
         with c_eq:
             ef2=build_equity_chart(all_bts)
-            if ef2: st.plotly_chart(ef2,use_container_width=True)
+            if ef2: st.plotly_chart(ef2,width='stretch',key='pc6')
         with c_mo:
             mf=build_monthly(bt)
-            if mf: st.plotly_chart(mf,use_container_width=True)
+            if mf: st.plotly_chart(mf,width='stretch',key='pc7')
         ddf=build_drawdown(bt)
-        if ddf: st.plotly_chart(ddf,use_container_width=True)
+        if ddf: st.plotly_chart(ddf,width='stretch',key='pc8')
         with st.expander("📋 Full trade log"):
             tdf3=bt["trade_list"].copy(); tdf3["pnl%"]=tdf3["pnl"]/10000*100
             st.dataframe(tdf3.style.format({"entry":"${:,.2f}","exit":"${:,.2f}","pnl":"${:+,.2f}","pnl%":"{:+.2f}%"})
                 .map(lambda v:"color:#00ff88" if isinstance(v,(int,float)) and v>0 else "color:#ff4444",subset=["pnl"]),
-                use_container_width=True,hide_index=True)
+                width='stretch',hide_index=True)
         with st.expander("⚠️ Disclaimer"): st.caption("Past results don't guarantee future performance. No fees or slippage modelled.")
     else: st.info("Select a market and click **▶ Run Backtest**.")
 
@@ -930,16 +930,16 @@ with t_ensemble:
             fig_lb.add_trace(go.Bar(x=trets,y=names,orientation="h",marker_color=["rgba(0,204,102,0.8)" if r>=0 else "rgba(204,51,51,0.8)" for r in trets],text=[f"{r:+.1f}%" for r in trets],textposition="auto"),row=1,col=1)
             fig_lb.add_trace(go.Bar(x=tsharpes,y=names,orientation="h",marker_color=["rgba(167,139,250,0.8)" if s>=0 else "rgba(255,107,107,0.8)" for s in tsharpes],text=[f"{s:.2f}" for s in tsharpes],textposition="auto"),row=1,col=2)
             fig_lb.update_layout(height=480,template="plotly_dark",paper_bgcolor="#080818",plot_bgcolor="#0a0a18",showlegend=False,margin=dict(l=0,r=0,t=40,b=0))
-            st.plotly_chart(fig_lb,use_container_width=True)
+            st.plotly_chart(fig_lb,width='stretch',key='pc9')
             fig_dist=go.Figure(go.Histogram(x=rets,nbinsx=20,marker_color=["rgba(0,204,102,0.7)" if r>=0 else "rgba(204,51,51,0.7)" for r in rets]))
             fig_dist.add_vline(x=0,line=dict(color="#555",width=1,dash="dash")); fig_dist.add_vline(x=np.mean(rets),line=dict(color="#00d4ff",width=2),annotation_text=f"Mean {np.mean(rets):.1f}%")
             fig_dist.update_layout(height=230,template="plotly_dark",title="Return distribution — 100 AIs",paper_bgcolor="#080818",plot_bgcolor="#0a0a18",margin=dict(l=0,r=0,t=50,b=0))
-            st.plotly_chart(fig_dist,use_container_width=True)
+            st.plotly_chart(fig_dist,width='stretch',key='pc10')
             with st.expander("📋 Full table"):
                 df_ens=pd.DataFrame([{"Rank":i+1,"Trader":r["name"],"Return%":r["total_return"],"WR%":r["win_rate"],"Sharpe":r["sharpe"],"MaxDD%":r["max_drawdown"],"PF":r["profit_factor"],"Trades":r["total_trades"],"RSI":f"{r['rsi_range'][0]}-{r['rsi_range'][1]}","RR":r["rr"],"Score":round(r["score"],3)} for i,r in enumerate(res)])
                 st.dataframe(df_ens.style.format({"Return%":"{:+.1f}%","WR%":"{:.0f}%","Sharpe":"{:.2f}","MaxDD%":"{:.1f}%","PF":"{:.2f}","Score":"{:.3f}"})
                     .highlight_max(subset=["Return%","WR%","Sharpe","Score"],color="#1a3a1a").highlight_min(subset=["MaxDD%"],color="#1a3a1a"),
-                    use_container_width=True,hide_index=True)
+                    width='stretch',hide_index=True)
 
 # ── SESSIONS ──────────────────────────────────────────────────────────────────
 with t_sessions:
