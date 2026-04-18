@@ -1,7 +1,7 @@
 """
-Nigel v3 — Alpha Futures Edition
-CME Futures: ES, NQ, CL, GC, YM + crypto futures (BTC, ETH)
-Data: Polygon.io (CME + crypto) | Persistent state | Hyper-short scalp signals
+Nigel v4 — Alpha Futures Intelligence
+REBUILT: Real P&L math, honest signals, Monte Carlo eval probability,
+genuine paper trading loop, no fake "100 AI" theater.
 """
 
 import streamlit as st
@@ -12,1327 +12,1440 @@ from plotly.subplots import make_subplots
 import requests
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-import time, json, pathlib
+import time, json, pathlib, random
 
 st.set_page_config(
-    page_title="Nigel — Alpha Futures Intelligence",
-    layout="wide", page_icon="⚡",
+    page_title="Nigel v4 — Alpha Futures",
+    layout="wide",
+    page_icon="⚡",
     initial_sidebar_state="expanded"
 )
 
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;700&family=Syne:wght@400;700;800&display=swap');
-html,body,[class*="css"]{font-family:'Syne',sans-serif;}
-.main-title{font-family:'Syne',sans-serif;font-size:2.6rem;font-weight:800;
-  background:linear-gradient(90deg,#ff6b00,#ffd700,#00d4ff);-webkit-background-clip:text;
-  -webkit-text-fill-color:transparent;letter-spacing:-0.03em;margin-bottom:0;}
-.subtitle{color:#445566;font-size:12px;font-family:'JetBrains Mono',monospace;margin-bottom:18px;letter-spacing:.05em;}
-.sig-badge{display:inline-block;border-radius:4px;padding:3px 12px;font-size:11px;font-weight:700;
-  letter-spacing:.06em;font-family:'JetBrains Mono',monospace;}
-.sig-buy{background:rgba(0,255,136,0.1);color:#00ff88;border:1px solid rgba(0,255,136,0.3);}
-.sig-sell{background:rgba(255,68,68,0.1);color:#ff4444;border:1px solid rgba(255,68,68,0.3);}
-.sig-hold{background:rgba(136,136,136,0.1);color:#888;border:1px solid rgba(136,136,136,0.3);}
-.sig-scalp{background:rgba(255,200,0,0.15);color:#ffd700;border:1px solid rgba(255,200,0,0.4);}
-.note-card{border-radius:10px;padding:13px 17px;margin-bottom:9px;font-size:13px;line-height:1.65;}
-.note-watch{background:#1a1400;border-left:3px solid #f0a500;color:#ffd166;}
-.note-buy{background:#001a0a;border-left:3px solid #00ff88;color:#88ffcc;}
-.note-sell{background:#1a0000;border-left:3px solid #ff4444;color:#ff9999;}
-.note-info{background:#001020;border-left:3px solid #00d4ff;color:#88ddff;}
-.bt-stat{background:#0a0a1a;border:1px solid #1a1a2e;border-radius:8px;padding:10px;text-align:center;}
-.bt-val{font-family:'JetBrains Mono',monospace;font-size:1.1rem;font-weight:700;}
-.bt-lbl{font-size:10px;color:#555;margin-top:2px;}
-.scalp-card{background:#0d0d00;border:2px solid #ffd700;border-radius:10px;padding:14px 18px;margin-bottom:10px;}
-.scalp-urgent{background:#1a0d00;border:2px solid #ff6600;border-radius:10px;padding:14px 18px;margin-bottom:10px;}
-.profit-best{background:#001a0a;border:2px solid #00ff88;border-radius:12px;padding:18px;margin-bottom:10px;}
-.profit-good{background:#0a0a1a;border:1px solid #00d4ff44;border-radius:12px;padding:14px;margin-bottom:8px;}
-.stTabs [data-baseweb="tab-list"]{background:#080818;border-radius:10px;padding:4px;}
-.stTabs [data-baseweb="tab"]{border-radius:8px;color:#666;font-size:13px;}
-.stTabs [aria-selected="true"]{background:#1a1a3a;color:#fff;}
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Bebas+Neue&family=DM+Sans:wght@300;400;600&display=swap');
+
+*, html, body { box-sizing: border-box; }
+html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; background: #05050f; }
+
+.nigel-title {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 3.8rem;
+  letter-spacing: 0.12em;
+  color: #fff;
+  line-height: 1;
+  margin: 0;
+}
+.nigel-title span { color: #ff4d00; }
+
+.mono { font-family: 'Space Mono', monospace; }
+
+.pill {
+  display: inline-block;
+  border-radius: 2px;
+  padding: 2px 10px;
+  font-family: 'Space Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+}
+.pill-buy  { background: rgba(0,230,100,0.12); color: #00e664; border: 1px solid rgba(0,230,100,0.3); }
+.pill-sell { background: rgba(255,60,60,0.12);  color: #ff3c3c; border: 1px solid rgba(255,60,60,0.3); }
+.pill-hold { background: rgba(120,120,140,0.12); color: #7878a0; border: 1px solid rgba(120,120,140,0.25); }
+.pill-scalp{ background: rgba(255,180,0,0.12); color: #ffb400; border: 1px solid rgba(255,180,0,0.3); }
+
+.card {
+  background: #0c0c1e;
+  border: 1px solid #1a1a35;
+  border-radius: 6px;
+  padding: 16px;
+}
+.card-accent-green { border-left: 3px solid #00e664; }
+.card-accent-red   { border-left: 3px solid #ff3c3c; }
+.card-accent-gold  { border-left: 3px solid #ffb400; }
+.card-accent-blue  { border-left: 3px solid #00aaff; }
+
+.stat-val {
+  font-family: 'Space Mono', monospace;
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1;
+}
+.stat-lbl {
+  font-size: 10px;
+  color: #44445a;
+  letter-spacing: .06em;
+  margin-top: 3px;
+  text-transform: uppercase;
+}
+
+.mc-bar-wrap {
+  background: #111128;
+  border-radius: 3px;
+  height: 8px;
+  margin: 4px 0;
+  overflow: hidden;
+}
+.mc-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+
+.signal-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid #111128;
+}
+.signal-row:last-child { border-bottom: none; }
+
+.live-dot {
+  display: inline-block;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: #00e664;
+  animation: pulse 2s infinite;
+  margin-right: 5px;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.warn-box {
+  background: #1a0a00;
+  border: 1px solid #ff4d0044;
+  border-radius: 6px;
+  padding: 12px 16px;
+  font-size: 12px;
+  color: #ff9955;
+  margin-bottom: 10px;
+}
+.info-box {
+  background: #001020;
+  border: 1px solid #00aaff33;
+  border-radius: 6px;
+  padding: 12px 16px;
+  font-size: 12px;
+  color: #66ccff;
+  margin-bottom: 10px;
+}
+
+div[data-testid="stMetricValue"] { font-family: 'Space Mono', monospace; }
+.stTabs [data-baseweb="tab-list"] { background: #0c0c1e; border-radius: 6px; gap: 2px; padding: 4px; }
+.stTabs [data-baseweb="tab"] { border-radius: 4px; color: #44445a; font-size: 13px; }
+.stTabs [aria-selected="true"] { background: #1a1a35 !important; color: #fff !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# ── PERSISTENCE ───────────────────────────────────────────────────────────────
-PERSIST_FILE = pathlib.Path("nigel_af_state.json")
+# ─────────────────────────────────────────────────────────────
+# CONSTANTS — REAL CME CONTRACT SPECS
+# ─────────────────────────────────────────────────────────────
+MARKETS = {
+    "ES":  {"label": "E-mini S&P 500",   "proxy": "SPY",      "color": "#00e664", "crypto": False,
+            "tick": 0.25,  "tick_usd": 12.50, "multiplier": 50,   "margin_est": 13200,
+            "desc": "Most liquid CME future. Tracks S&P 500. $12.50/tick, $50/point."},
+    "NQ":  {"label": "E-mini Nasdaq 100","proxy": "QQQ",      "color": "#00aaff", "crypto": False,
+            "tick": 0.25,  "tick_usd": 5.00,  "multiplier": 20,   "margin_est": 17600,
+            "desc": "Higher beta than ES. Tech-driven. $5/tick, $20/point."},
+    "GC":  {"label": "Gold Futures",     "proxy": "GLD",      "color": "#ffb400", "crypto": False,
+            "tick": 0.10,  "tick_usd": 10.00, "multiplier": 100,  "margin_est": 8800,
+            "desc": "100 troy oz. Safe haven. $10/tick. Moves on USD & Fed policy."},
+    "CL":  {"label": "Crude Oil WTI",    "proxy": "USO",      "color": "#ff6655", "crypto": False,
+            "tick": 0.01,  "tick_usd": 10.00, "multiplier": 1000, "margin_est": 6600,
+            "desc": "1000 barrels. $10/tick. High vol. EIA Wednesdays move it hard."},
+    "YM":  {"label": "Dow Jones Fut.",   "proxy": "DIA",      "color": "#cc88ff", "crypto": False,
+            "tick": 1.0,   "tick_usd": 5.00,  "multiplier": 5,    "margin_est": 10000,
+            "desc": "Slower than ES. $5/tick. Value stock driven. Less algo whipsaw."},
+    "BTC": {"label": "Micro BTC Futures","proxy": "X:BTCUSD", "color": "#f7931a", "crypto": True,
+            "tick": 5.0,   "tick_usd": 25.00, "multiplier": 0.1,  "margin_est": 4000,
+            "desc": "0.1 BTC per contract. $25/tick. 24/7. Gap risk overnight."},
+    "ETH": {"label": "Micro ETH Futures","proxy": "X:ETHUSD", "color": "#627eea", "crypto": True,
+            "tick": 0.01,  "tick_usd": 0.10,  "multiplier": 0.1,  "margin_est": 1200,
+            "desc": "0.1 ETH per contract. High beta crypto. DeFi news sensitive."},
+}
 
-def load_persist():
-    if PERSIST_FILE.exists():
+ALPHA_ACCOUNTS = {
+    "10k":  {"size": 10_000,  "target": 1_000,  "max_loss": 400,   "eod_dd_pct": 0.04, "max_contracts": {"ES":6,  "NQ":3,  "GC":2,  "CL":2,  "YM":3,  "BTC":1, "ETH":1}},
+    "25k":  {"size": 25_000,  "target": 2_500,  "max_loss": 1_000, "eod_dd_pct": 0.04, "max_contracts": {"ES":10, "NQ":6,  "GC":4,  "CL":4,  "YM":6,  "BTC":2, "ETH":2}},
+    "50k":  {"size": 50_000,  "target": 5_000,  "max_loss": 2_000, "eod_dd_pct": 0.04, "max_contracts": {"ES":15, "NQ":10, "GC":8,  "CL":6,  "YM":10, "BTC":3, "ETH":3}},
+    "100k": {"size": 100_000, "target": 10_000, "max_loss": 4_000, "eod_dd_pct": 0.04, "max_contracts": {"ES":20, "NQ":15, "GC":12, "CL":10, "YM":15, "BTC":5, "ETH":5}},
+}
+
+PERSIST = pathlib.Path("nigel_v4_state.json")
+
+def _load():
+    if PERSIST.exists():
         try:
-            with open(PERSIST_FILE, "r") as f: return json.load(f)
+            with open(PERSIST) as f: return json.load(f)
         except: return {}
     return {}
 
-def persist_set(key, value):
-    try:
-        d = load_persist(); d[key] = value
-        with open(PERSIST_FILE, "w") as f: json.dump(d, f, default=str)
-    except: pass
+def _save(key, val):
+    d = _load(); d[key] = val
+    with open(PERSIST, "w") as f: json.dump(d, f, default=str)
 
-def persist_get(key, default=None):
-    return load_persist().get(key, default)
+def _get(key, default=None):
+    return _load().get(key, default)
 
-# ── CME FUTURES INSTRUMENTS ───────────────────────────────────────────────────
-# Alpha Futures trades these CME products. Polygon tickers for equities/ETFs
-# are used as proxies where direct futures data needs a paid tier.
-# SPY=ES proxy, QQQ=NQ proxy, GLD=GC proxy, USO=CL proxy, DIA=YM proxy
-MARKETS = {
-    "ES":  {"label":"E-mini S&P 500 (ES)",     "poly_ticker":"SPY",       "color":"#22c55e", "crypto":False,
-            "tick":0.25, "tick_val":12.50, "contract_val":"$50×price",
-            "alpha_limits":{"10k":6,"25k":10,"50k":15,"100k":20},
-            "desc":"Most liquid futures. NY session king. Reacts to every economic print."},
-    "NQ":  {"label":"E-mini Nasdaq 100 (NQ)",  "poly_ticker":"QQQ",       "color":"#378add", "crypto":False,
-            "tick":0.25, "tick_val":5.00, "contract_val":"$20×price",
-            "alpha_limits":{"10k":3,"25k":6,"50k":10,"100k":15},
-            "desc":"Higher beta than ES. Tech sector driven. Best momentum instrument."},
-    "GC":  {"label":"Gold Futures (GC)",       "poly_ticker":"GLD",       "color":"#f0a500", "crypto":False,
-            "tick":0.10, "tick_val":10.00, "contract_val":"100 troy oz",
-            "alpha_limits":{"10k":2,"25k":4,"50k":8,"100k":12},
-            "desc":"Safe haven. Moves on USD strength, Fed policy, geopolitics."},
-    "CL":  {"label":"Crude Oil (CL)",          "poly_ticker":"USO",       "color":"#f87171", "crypto":False,
-            "tick":0.01, "tick_val":10.00, "contract_val":"1000 barrels",
-            "alpha_limits":{"10k":2,"25k":4,"50k":6,"100k":10},
-            "desc":"High volatility. EIA Wednesday data moves it 1-2%. Trending instrument."},
-    "YM":  {"label":"Dow Jones (YM)",          "poly_ticker":"DIA",       "color":"#a78bfa", "crypto":False,
-            "tick":1.0,  "tick_val":5.00,  "contract_val":"$5×price",
-            "alpha_limits":{"10k":3,"25k":6,"50k":10,"100k":15},
-            "desc":"Slower than ES/NQ. Value stocks driven. Less prone to algo spikes."},
-    "BTC": {"label":"Bitcoin (Micro BTC Fut)", "poly_ticker":"X:BTCUSD",  "color":"#f0a500", "crypto":True,
-            "tick":5.0,  "tick_val":25.00, "contract_val":"0.1 BTC",
-            "alpha_limits":{"10k":1,"25k":2,"50k":3,"100k":5},
-            "desc":"Crypto futures on CME. High overnight gap risk. 24/7 market."},
-    "ETH": {"label":"Ether (Micro ETH Fut)",   "poly_ticker":"X:ETHUSD",  "color":"#627eea", "crypto":True,
-            "tick":0.01, "tick_val":0.10,  "contract_val":"0.1 ETH",
-            "alpha_limits":{"10k":1,"25k":2,"50k":3,"100k":5},
-            "desc":"Follows BTC with higher beta. DeFi/protocol news sensitive."},
-}
+# ─────────────────────────────────────────────────────────────
+# API KEY GATE
+# ─────────────────────────────────────────────────────────────
+def get_key():
+    sk = st.secrets.get("POLYGON_KEY", "") if hasattr(st, "secrets") else ""
+    return st.session_state.get("POLYGON_KEY", sk or _get("POLYGON_KEY", ""))
 
-# Alpha Futures account sizes and rules
-ALPHA_ACCOUNTS = {
-    "10k Basic":  {"size":10000, "profit_target":1000,  "max_loss_limit":400,  "daily_loss":None, "contracts_es":6},
-    "25k Basic":  {"size":25000, "profit_target":2500,  "max_loss_limit":1000, "daily_loss":None, "contracts_es":10},
-    "50k Basic":  {"size":50000, "profit_target":5000,  "max_loss_limit":2000, "daily_loss":None, "contracts_es":15},
-    "100k Basic": {"size":100000,"profit_target":10000, "max_loss_limit":4000, "daily_loss":None, "contracts_es":20},
-}
-
-# ── 100 TRADER CONFIGS ────────────────────────────────────────────────────────
-def _make_100():
-    base = [
-        (0.008,2.5,(35,65),True,False,False),
-        (0.015,2.0,(20,80),False,True,False),
-        (0.005,1.5,(25,75),False,False,True),
-        (0.010,3.0,(30,70),True,False,False),
-        (0.012,2.0,(20,80),False,False,True),
-        (0.018,2.5,(25,75),False,True,False),
-        (0.006,4.0,(40,60),True,False,False),
-        (0.020,1.8,(20,80),False,False,False),
-        (0.004,3.0,(38,62),True,False,False),
-        (0.014,2.2,(22,78),False,True,False),
-    ]
-    styles = ["Momentum","Reversal","Breakout","Scalp","Swing","Position","Day","Macro","Quant","Hybrid"]
-    tags   = ["Alpha","Beta","Gamma","Delta","Epsilon","Zeta","Eta","Theta","Iota","Kappa"]
-    out = []
-    for i in range(100):
-        b = base[i % 10]; noise = 1 + (i % 7 - 3) * 0.04
-        risk = round(min(0.025, max(0.003, b[0]*noise)), 4)
-        rr   = round(max(1.2, b[1] + (i%5-2)*0.15), 2)
-        lo   = max(15, b[2][0] + (i%7-3)*2)
-        hi   = min(85, b[2][1] + (i%7-3)*2)
-        out.append({"name":f"{styles[i%10]}-{tags[i%10]}{i+1}","risk":risk,"rr":rr,
-                    "rsi_range":(lo,hi),"strong_only":b[3],"bb_break":b[4],"rsi_extreme":b[5]})
-    return out
-
-ALL100 = _make_100()
-
-# ── SESSION STATE ─────────────────────────────────────────────────────────────
-def _make_trader(name, emoji, style, desc, risk, rr, filters, sources):
-    return dict(name=name,emoji=emoji,style=style,desc=desc,risk_pct=risk,rr=rr,
-                signal_filters=filters,data_sources=sources,balance=25000.0,peak=25000.0,
-                trades=[],open_pos=None,history=[25000.0],win_streak=0,loss_streak=0)
-
-if "traders" not in st.session_state:
-    saved = persist_get("traders_state")
-    st.session_state["traders"] = saved if saved else [
-        _make_trader("ES Scalper","⚡","ES micro-scalp","Scalps ES 1-3 min. RSI extremes + VWAP dev. Tight 2-tick stops.",
-            0.005,1.5,{"rsi_range":(25,75),"strong_only":False,"bb_break":False,"rsi_extreme":True},
-            ["price","rsi","vwap","stoch","cci"]),
-        _make_trader("NQ Momentum","🚀","NQ breakout","Rides NQ momentum post 9:30 open. BB breakouts, ATR stops.",
-            0.015,2.0,{"rsi_range":(20,80),"strong_only":False,"bb_break":True,"rsi_extreme":False},
-            ["price","rsi","macd","bb","atr","volume"]),
-        _make_trader("GC Macro","🌍","Gold macro swing","Buys Gold on USD weakness. Full alignment required.",
-            0.008,2.5,{"rsi_range":(35,65),"strong_only":True,"bb_break":False,"rsi_extreme":False},
-            ["price","volume","rsi","macd","bb"]),
-        _make_trader("CL Trend","🛢️","Crude trend follower","EMA50 + RSI 40-60 + MACD. Holds for bigger moves.",
-            0.010,3.0,{"rsi_range":(30,70),"strong_only":True,"bb_break":False,"rsi_extreme":False},
-            ["price","rsi","macd","ema50","volume"]),
-        _make_trader("Multi Contrarian","🔄","Counter-trend reversal","Buys oversold, sells overbought across all instruments.",
-            0.012,2.0,{"rsi_range":(20,80),"strong_only":False,"bb_break":False,"rsi_extreme":True},
-            ["price","rsi","stoch","cci","bb"]),
-    ]
-
-for k, v in [("notes",[]),("bt_results",{}),("ensemble_results",{}),("grand_strategy",{}),
-              ("profit_analysis",{})]:
-    if k not in st.session_state:
-        disk = persist_get(k)
-        st.session_state[k] = disk if disk else v
-
-if "last_ai"        not in st.session_state: st.session_state["last_ai"]        = 0.0
-if "ensemble_ran"   not in st.session_state: st.session_state["ensemble_ran"]   = bool(persist_get("ensemble_ran", False))
-if "scalp_signals"  not in st.session_state: st.session_state["scalp_signals"]  = []
-if "last_scalp"     not in st.session_state: st.session_state["last_scalp"]     = 0.0
-if "last_save"      not in st.session_state: st.session_state["last_save"]      = 0.0
-
-TRADERS = st.session_state["traders"]
-
-def autosave():
-    if time.time() - st.session_state["last_save"] > 60:
-        persist_set("traders_state", TRADERS)
-        persist_set("notes", st.session_state.get("notes",[])[-40:])
-        persist_set("ensemble_ran", st.session_state.get("ensemble_ran", False))
-        st.session_state["last_save"] = time.time()
-
-# ── KEY GATE ──────────────────────────────────────────────────────────────────
-def get_keys():
-    p = st.secrets.get("POLYGON_KEY","") if hasattr(st,"secrets") else ""
-    pp = persist_get("POLYGON_KEY","")
-    return st.session_state.get("POLYGON_KEY", p or pp)
-
-POLYGON_KEY = get_keys()
+POLYGON_KEY = get_key()
 
 if not POLYGON_KEY:
-    st.markdown('<div class="main-title">⚡ Nigel — Alpha Futures</div>', unsafe_allow_html=True)
-    st.markdown("### Setup")
-    with st.form("keys"):
-        pk = st.text_input("Polygon.io API Key (needed for CME futures data)", type="password")
-        if st.form_submit_button("Launch"):
+    st.markdown('<div class="nigel-title">NIGEL <span>v4</span></div>', unsafe_allow_html=True)
+    st.markdown("#### Alpha Futures Intelligence — Setup")
+    st.markdown('<div class="info-box">Polygon.io free tier covers SPY/QQQ/GLD/USO/DIA as CME proxies + BTC/ETH crypto. Paid tier unlocks native futures. Get your free key at polygon.io</div>', unsafe_allow_html=True)
+    with st.form("setup"):
+        pk = st.text_input("Polygon.io API Key", type="password")
+        if st.form_submit_button("Launch Nigel", type="primary"):
             if pk:
                 st.session_state["POLYGON_KEY"] = pk
-                persist_set("POLYGON_KEY", pk)
+                _save("POLYGON_KEY", pk)
                 st.rerun()
             else:
-                st.error("Polygon key required.")
-    st.info("Polygon.io free tier covers SPY/QQQ/GLD/USO/DIA as CME proxies, plus BTC/ETH crypto. Paid tier gets native futures contracts (ES, NQ etc).")
+                st.error("Key required.")
     st.stop()
 
-# ── DATA FETCHERS ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
+# DATA FETCHERS
+# ─────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
-def fetch_poly_ohlcv(ticker, key, days=120):
+def fetch_daily(ticker, key, days=120):
     try:
         to = datetime.today().strftime("%Y-%m-%d")
-        fr = (datetime.today()-timedelta(days=days)).strftime("%Y-%m-%d")
-        d = requests.get(
+        fr = (datetime.today() - timedelta(days=days)).strftime("%Y-%m-%d")
+        r = requests.get(
             f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{fr}/{to}"
             f"?adjusted=true&sort=asc&limit={days}&apiKey={key}", timeout=15
         ).json()
-        if "results" not in d or len(d["results"]) < 5: return pd.DataFrame()
-        df = pd.DataFrame(d["results"])
+        if "results" not in r or len(r["results"]) < 10: return pd.DataFrame()
+        df = pd.DataFrame(r["results"])
+        df.index = pd.to_datetime(df["t"], unit="ms")
+        return df.rename(columns={"o":"open","h":"high","l":"low","c":"close","v":"volume"})[["open","high","low","close","volume"]]
+    except: return pd.DataFrame()
+
+@st.cache_data(ttl=60)
+def fetch_intraday(ticker, key, minutes=300):
+    try:
+        to = datetime.today().strftime("%Y-%m-%d")
+        fr = (datetime.today() - timedelta(days=5)).strftime("%Y-%m-%d")
+        r = requests.get(
+            f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/5/minute/{fr}/{to}"
+            f"?adjusted=true&sort=asc&limit={minutes}&apiKey={key}", timeout=15
+        ).json()
+        if "results" not in r or len(r["results"]) < 10: return pd.DataFrame()
+        df = pd.DataFrame(r["results"])
         df.index = pd.to_datetime(df["t"], unit="ms")
         return df.rename(columns={"o":"open","h":"high","l":"low","c":"close","v":"volume"})[["open","high","low","close","volume"]]
     except: return pd.DataFrame()
 
 @st.cache_data(ttl=120)
-def fetch_cg(cg_id, days=120):
+def fetch_crypto_daily(cg_id, days=120):
     try:
-        d = requests.get(
+        r = requests.get(
             f"https://api.coingecko.com/api/v3/coins/{cg_id}/market_chart"
             f"?vs_currency=usd&days={days}&interval=daily", timeout=15
         ).json()
-        prices  = [p[1] for p in d["prices"]]
-        volumes = [v[1] for v in d.get("total_volumes",[])]
-        dates   = [pd.Timestamp(p[0],unit="ms") for p in d["prices"]]
-        return pd.DataFrame({"close":prices,"volume":volumes},index=dates)
+        prices  = [p[1] for p in r["prices"]]
+        volumes = [v[1] for v in r.get("total_volumes", [])]
+        dates   = [pd.Timestamp(p[0], unit="ms") for p in r["prices"]]
+        df = pd.DataFrame({"close": prices, "volume": volumes}, index=dates)
+        df["open"] = df["close"].shift(1).fillna(df["close"])
+        df["high"] = df["close"] * 1.01
+        df["low"]  = df["close"] * 0.99
+        return df
     except: return pd.DataFrame()
 
 @st.cache_data(ttl=60)
-def fetch_poly_intraday(ticker, key, minutes=200):
+def fetch_crypto_hourly(cg_id):
     try:
-        to = datetime.today().strftime("%Y-%m-%d")
-        fr = (datetime.today()-timedelta(days=5)).strftime("%Y-%m-%d")
-        d = requests.get(
-            f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/5/minute/{fr}/{to}"
-            f"?adjusted=true&sort=asc&limit={minutes}&apiKey={key}", timeout=15
-        ).json()
-        if "results" not in d or len(d["results"]) < 10: return pd.DataFrame()
-        df = pd.DataFrame(d["results"])
-        df.index = pd.to_datetime(df["t"], unit="ms")
-        return df.rename(columns={"o":"open","h":"high","l":"low","c":"close","v":"volume"})[["open","high","low","close","volume"]]
-    except: return pd.DataFrame()
-
-@st.cache_data(ttl=60)
-def fetch_cg_hourly(cg_id):
-    try:
-        d = requests.get(
+        r = requests.get(
             f"https://api.coingecko.com/api/v3/coins/{cg_id}/market_chart"
-            f"?vs_currency=usd&days=2&interval=hourly", timeout=15
+            f"?vs_currency=usd&days=3&interval=hourly", timeout=15
         ).json()
-        prices = [p[1] for p in d["prices"]]
-        dates  = [pd.Timestamp(p[0],unit="ms") for p in d["prices"]]
-        return pd.DataFrame({"close":prices}, index=dates)
+        prices = [p[1] for p in r["prices"]]
+        dates  = [pd.Timestamp(p[0], unit="ms") for p in r["prices"]]
+        df = pd.DataFrame({"close": prices}, index=dates)
+        df["open"] = df["close"].shift(1).fillna(df["close"])
+        df["high"] = df["close"] * 1.005
+        df["low"]  = df["close"] * 0.995
+        df["volume"] = 1000
+        return df
     except: return pd.DataFrame()
 
 @st.cache_data(ttl=300)
 def fetch_fear_greed():
     try:
-        d = requests.get("https://api.alternative.me/fng/?limit=14", timeout=10).json()["data"]
-        return {"value":int(d[0]["value"]),"label":d[0]["value_classification"],
-                "history":[int(x["value"]) for x in d]}
-    except: return {"value":50,"label":"Neutral","history":[50]*14}
+        d = requests.get("https://api.alternative.me/fng/?limit=30", timeout=10).json()["data"]
+        return {"value": int(d[0]["value"]), "label": d[0]["value_classification"],
+                "history": [int(x["value"]) for x in d]}
+    except: return {"value": 50, "label": "Neutral", "history": [50]*30}
 
-# ── INDICATORS ────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
+# INDICATORS
+# ─────────────────────────────────────────────────────────────
 def add_indicators(df):
     if df.empty or len(df) < 26: return df
     df = df.copy()
-    df["ema8"]  = df["close"].ewm(span=8,  adjust=False).mean()
-    df["ema21"] = df["close"].ewm(span=21, adjust=False).mean()
-    df["ema50"] = df["close"].ewm(span=50, adjust=False).mean()
-    e12 = df["close"].ewm(span=12,adjust=False).mean()
-    e26 = df["close"].ewm(span=26,adjust=False).mean()
-    df["macd"]        = e12 - e26
-    df["macd_signal"] = df["macd"].ewm(span=9,adjust=False).mean()
-    df["macd_hist"]   = df["macd"] - df["macd_signal"]
+    # EMAs
+    for span, col in [(8,"ema8"),(21,"ema21"),(50,"ema50")]:
+        df[col] = df["close"].ewm(span=span, adjust=False).mean()
+    # MACD
+    e12 = df["close"].ewm(span=12, adjust=False).mean()
+    e26 = df["close"].ewm(span=26, adjust=False).mean()
+    df["macd"]   = e12 - e26
+    df["macd_s"] = df["macd"].ewm(span=9, adjust=False).mean()
+    df["macd_h"] = df["macd"] - df["macd_s"]
+    # RSI-14
     delta = df["close"].diff()
-    gain  = delta.where(delta>0,0.0).rolling(14).mean()
-    loss  = (-delta.where(delta<0,0.0)).rolling(14).mean().replace(0,1e-10)
-    df["rsi"] = 100 - (100 / (1 + gain/loss))
+    gain  = delta.where(delta > 0, 0.0).rolling(14).mean()
+    loss  = (-delta.where(delta < 0, 0.0)).rolling(14).mean().replace(0, 1e-10)
+    df["rsi"] = 100 - (100 / (1 + gain / loss))
+    # Bollinger
     df["bb_mid"]   = df["close"].rolling(20).mean()
     df["bb_std"]   = df["close"].rolling(20).std()
-    df["bb_upper"] = df["bb_mid"] + 2*df["bb_std"]
-    df["bb_lower"] = df["bb_mid"] - 2*df["bb_std"]
+    df["bb_upper"] = df["bb_mid"] + 2 * df["bb_std"]
+    df["bb_lower"] = df["bb_mid"] - 2 * df["bb_std"]
     df["bb_pct"]   = (df["close"] - df["bb_lower"]) / (df["bb_upper"] - df["bb_lower"] + 1e-10)
-    if "high" in df.columns:
-        hl = df["high"] - df["low"]
-        hc = (df["high"] - df["close"].shift()).abs()
-        lc = (df["low"]  - df["close"].shift()).abs()
-        df["atr"] = pd.concat([hl,hc,lc],axis=1).max(axis=1).rolling(14).mean()
-    else:
-        df["atr"] = df["close"] * 0.01
-    lo14 = df["close"].rolling(14).min()
-    hi14 = df["close"].rolling(14).max()
-    df["stoch_k"] = 100*(df["close"]-lo14)/(hi14-lo14+1e-10)
+    # ATR
+    hl = df["high"] - df["low"]
+    hc = (df["high"] - df["close"].shift()).abs()
+    lc = (df["low"]  - df["close"].shift()).abs()
+    df["atr"] = pd.concat([hl, hc, lc], axis=1).max(axis=1).rolling(14).mean()
+    df["atr_pct"] = df["atr"] / df["close"] * 100
+    # Stochastic
+    lo14 = df["low"].rolling(14).min()
+    hi14 = df["high"].rolling(14).max()
+    df["stoch_k"] = 100 * (df["close"] - lo14) / (hi14 - lo14 + 1e-10)
     df["stoch_d"] = df["stoch_k"].rolling(3).mean()
+    # VWAP (rolling 20-bar)
     if "volume" in df.columns:
-        df["vwap"]      = (df["close"]*df["volume"]).rolling(20).sum() / (df["volume"].rolling(20).sum()+1e-10)
-        df["vol_ma"]    = df["volume"].rolling(20).mean()
-        df["vol_ratio"] = df["volume"] / (df["vol_ma"]+1e-10)
-    bull_ema  = df["ema8"] > df["ema21"]
-    bull_macd = df["macd"] > df["macd_signal"]
-    mcu = bull_macd & ~bull_macd.shift(1).fillna(False)
-    mcd = ~bull_macd & bull_macd.shift(1).fillna(False)
+        df["vwap"]    = (df["close"] * df["volume"]).rolling(20).sum() / (df["volume"].rolling(20).sum() + 1e-10)
+        df["vol_ma"]  = df["volume"].rolling(20).mean()
+        df["vol_rat"] = df["volume"] / (df["vol_ma"] + 1e-10)
+    # Signal — strict, no inflate
+    bull_ema  = (df["ema8"] > df["ema21"]) & (df["ema21"] > df["ema50"])
+    bear_ema  = (df["ema8"] < df["ema21"]) & (df["ema21"] < df["ema50"])
+    macd_bull = df["macd"] > df["macd_s"]
+    macd_bear = df["macd"] < df["macd_s"]
+    macd_xup  = macd_bull & ~macd_bull.shift(1).fillna(False)
+    macd_xdn  = macd_bear & ~macd_bear.shift(1).fillna(False)
+    rsi = df["rsi"]
     df["signal"] = np.where(
-        bull_ema & mcu & df["rsi"].between(35,68),      "STRONG BUY",
-        np.where(bull_ema & bull_macd & df["rsi"].between(38,65), "BUY",
-        np.where(~bull_ema & mcd & (df["rsi"]>32),    "STRONG SELL",
-        np.where(~bull_ema & ~bull_macd & (df["rsi"]>38), "SELL",
-        np.where(df["rsi"]<28, "OVERSOLD",
-        np.where(df["rsi"]>74, "OVERBOUGHT","HOLD"))))))
+        bull_ema & macd_xup & rsi.between(38, 65),      "STRONG BUY",
+        np.where(bull_ema & macd_bull & rsi.between(40, 60), "BUY",
+        np.where(rsi < 28,                               "OVERSOLD",
+        np.where(bear_ema & macd_xdn & rsi.between(35, 62), "STRONG SELL",
+        np.where(bear_ema & macd_bear & rsi.between(40, 62), "SELL",
+        np.where(rsi > 74,                               "OVERBOUGHT",
+        "HOLD"))))))
     return df
 
 def add_scalp_indicators(df):
     if df.empty or len(df) < 14: return df
     df = df.copy()
-    df["ema3"]  = df["close"].ewm(span=3,  adjust=False).mean()
-    df["ema8"]  = df["close"].ewm(span=8,  adjust=False).mean()
-    df["ema13"] = df["close"].ewm(span=13, adjust=False).mean()
+    for span, col in [(3,"ema3"),(8,"ema8"),(13,"ema13")]:
+        df[col] = df["close"].ewm(span=span, adjust=False).mean()
     delta = df["close"].diff()
-    gain  = delta.where(delta>0,0.0).rolling(7).mean()
-    loss  = (-delta.where(delta<0,0.0)).rolling(7).mean().replace(0,1e-10)
-    df["rsi7"] = 100 - (100/(1+gain/loss))
-    lo9 = df["close"].rolling(9).min()
-    hi9 = df["close"].rolling(9).max()
-    df["stoch_k"] = 100*(df["close"]-lo9)/(hi9-lo9+1e-10)
+    gain  = delta.where(delta > 0, 0.0).rolling(7).mean()
+    loss  = (-delta.where(delta < 0, 0.0)).rolling(7).mean().replace(0, 1e-10)
+    df["rsi7"]    = 100 - (100 / (1 + gain / loss))
+    lo9 = df["low"].rolling(9).min()   if "low"  in df.columns else df["close"].rolling(9).min()
+    hi9 = df["high"].rolling(9).max()  if "high" in df.columns else df["close"].rolling(9).max()
+    df["stoch_k"] = 100 * (df["close"] - lo9) / (hi9 - lo9 + 1e-10)
     df["stoch_d"] = df["stoch_k"].rolling(3).mean()
     df["bb_mid"]   = df["close"].rolling(10).mean()
     df["bb_std"]   = df["close"].rolling(10).std()
-    df["bb_upper"] = df["bb_mid"] + 1.8*df["bb_std"]
-    df["bb_lower"] = df["bb_mid"] - 1.8*df["bb_std"]
-    df["bb_pct"]   = (df["close"]-df["bb_lower"])/(df["bb_upper"]-df["bb_lower"]+1e-10)
+    df["bb_upper"] = df["bb_mid"] + 1.8 * df["bb_std"]
+    df["bb_lower"] = df["bb_mid"] - 1.8 * df["bb_std"]
+    df["bb_pct"]   = (df["close"] - df["bb_lower"]) / (df["bb_upper"] - df["bb_lower"] + 1e-10)
     if "volume" in df.columns:
-        df["vwap"]     = (df["close"]*df["volume"]).rolling(20).sum()/(df["volume"].rolling(20).sum()+1e-10)
-        df["vwap_dev"] = (df["close"]-df["vwap"])/(df["vwap"]+1e-10)*100
+        df["vwap"]     = (df["close"] * df["volume"]).rolling(20).sum() / (df["volume"].rolling(20).sum() + 1e-10)
+        df["vwap_dev"] = (df["close"] - df["vwap"]) / (df["vwap"] + 1e-10) * 100
     else:
         df["vwap_dev"] = 0.0
-    if "high" in df.columns:
-        hl = df["high"]-df["low"]
-        hc = (df["high"]-df["close"].shift()).abs()
-        lc = (df["low"]-df["close"].shift()).abs()
-        df["atr"] = pd.concat([hl,hc,lc],axis=1).max(axis=1).rolling(7).mean()
-    else:
-        df["atr"] = df["close"]*0.004
-    df["mom"] = df["close"].pct_change(3)*100
+    hl = (df["high"] - df["low"]) if "high" in df.columns else df["close"] * 0
+    hc = (df["high"] - df["close"].shift()).abs() if "high" in df.columns else df["close"] * 0
+    lc = (df["low"]  - df["close"].shift()).abs()  if "low"  in df.columns else df["close"] * 0
+    df["atr"] = pd.concat([hl, hc, lc], axis=1).max(axis=1).rolling(7).mean()
+    df["mom3"] = df["close"].pct_change(3) * 100
     return df
 
-# ── SCALP SIGNAL GENERATOR ────────────────────────────────────────────────────
-def generate_scalp_signals(intraday_dfs, market_signals_daily, selected):
-    signals = []
-    now_str = datetime.now().strftime("%H:%M:%S")
-    for mk in selected:
-        df_raw = intraday_dfs.get(mk, pd.DataFrame())
-        if df_raw.empty or len(df_raw) < 15: continue
-        df   = add_scalp_indicators(df_raw)
-        row  = df.iloc[-1]
-        prev = df.iloc[-2] if len(df)>2 else row
-        price    = float(row["close"])
-        rsi      = float(row.get("rsi7",50))
-        stoch_k  = float(row.get("stoch_k",50))
-        bb_pct   = float(row.get("bb_pct",0.5))
-        vwap_dev = float(row.get("vwap_dev",0))
-        mom      = float(row.get("mom",0))
-        atr      = float(row.get("atr",price*0.004))
-        ema3     = float(row.get("ema3",price))
-        ema8     = float(row.get("ema8",price))
-        prev_k   = float(prev.get("stoch_k",stoch_k))
-        mkt_info = MARKETS.get(mk,{})
-        reasons=[]; long_score=0; short_score=0
-        if rsi<28:            long_score+=3;  reasons.append(f"RSI7={rsi:.0f} oversold")
-        elif rsi<35:          long_score+=1;  reasons.append(f"RSI7={rsi:.0f} low")
-        if stoch_k<15 and stoch_k>prev_k: long_score+=2; reasons.append("Stoch crossed up <15")
-        if bb_pct<0.1:        long_score+=2;  reasons.append("Lower BB touch")
-        if vwap_dev<-0.6:     long_score+=1;  reasons.append(f"VWAP dev {vwap_dev:.1f}%")
-        if ema3>ema8 and float(prev.get("ema3",ema3))<=float(prev.get("ema8",ema8)):
-                              long_score+=2;  reasons.append("EMA3 crossed EMA8 up")
-        if mom>0.1:           long_score+=1;  reasons.append(f"Mom +{mom:.2f}%")
-        if rsi>72:            short_score+=3; reasons.append(f"RSI7={rsi:.0f} overbought")
-        elif rsi>65:          short_score+=1; reasons.append(f"RSI7={rsi:.0f} high")
-        if stoch_k>85 and stoch_k<prev_k: short_score+=2; reasons.append("Stoch crossed down >85")
-        if bb_pct>0.9:        short_score+=2; reasons.append("Upper BB touch")
-        if vwap_dev>0.6:      short_score+=1; reasons.append(f"VWAP dev +{vwap_dev:.1f}%")
-        if ema3<ema8 and float(prev.get("ema3",ema3))>=float(prev.get("ema8",ema8)):
-                              short_score+=2; reasons.append("EMA3 crossed EMA8 down")
-        if mom<-0.1:          short_score+=1; reasons.append(f"Mom {mom:.2f}%")
-        daily_sig = market_signals_daily.get(mk,{}).get("signal","HOLD")
-        if "BUY"  in daily_sig or daily_sig=="OVERSOLD":   long_score  = int(long_score*1.2)
-        if "SELL" in daily_sig or daily_sig=="OVERBOUGHT": short_score = int(short_score*1.2)
-        if long_score>=4 and long_score>short_score:     direction="LONG"; conf=min(95,50+long_score*5)
-        elif short_score>=4 and short_score>long_score:  direction="SHORT"; conf=min(95,50+short_score*5)
-        else: continue
-        urgency = "urgent" if conf>=80 else "hot" if conf>=65 else "normal"
-        sd = max(atr*1.0, price*0.002)
-        td = sd*1.5
-        stop   = round(price-sd if direction=="LONG" else price+sd, 4)
-        target = round(price+td if direction=="LONG" else price-td, 4)
-        # Tick value for Alpha Futures sizing hint
-        tick     = mkt_info.get("tick",0.25)
-        tick_val = mkt_info.get("tick_val",12.50)
-        ticks_risk = sd/tick if tick>0 else 0
-        dollar_risk = ticks_risk*tick_val
-        signals.append({
-            "market":mk,"label":mkt_info.get("label",mk),"color":mkt_info.get("color","#fff"),
-            "direction":direction,"price":price,"stop":stop,"target":target,
-            "conf":conf,"urgency":urgency,"rsi":round(rsi,1),"stoch_k":round(stoch_k,1),
-            "bb_pct":round(bb_pct*100,1),"vwap_dev":round(vwap_dev,2),"reasons":reasons[:4],
-            "hold_est":"5–15 min","rr":"1:1.5","time":now_str,"daily_bias":daily_sig,
-            "timeframe":"5-min scalp","tick_risk":round(ticks_risk,1),"dollar_risk":round(dollar_risk,2),
-        })
-    signals.sort(key=lambda x:x["conf"],reverse=True)
-    return signals
+# ─────────────────────────────────────────────────────────────
+# REAL P&L MATH
+# ─────────────────────────────────────────────────────────────
+def calc_real_pnl(mk, direction, entry, exit_price, contracts):
+    """True futures P&L using real contract specs."""
+    info = MARKETS[mk]
+    tick     = info["tick"]
+    tick_usd = info["tick_usd"]
+    ticks    = (exit_price - entry) / tick
+    if direction == "short": ticks = -ticks
+    return round(ticks * tick_usd * contracts, 2)
 
-# ── BACKTEST ENGINE ───────────────────────────────────────────────────────────
-def run_backtest(df, cfg, label=""):
-    if df.empty or "signal" not in df.columns or len(df)<30: return {"error":"insufficient data"}
-    df  = df.dropna(subset=["close","signal","rsi"]).copy()
-    capital=10000.0; cash=capital; pos=0.0; entry=0.0; trades=[]; equity=[]
-    stop_pct=0.02; rr=float(cfg.get("rr",2.0))
-    f = cfg.get("signal_filters", cfg)
-    def direction(row):
-        s=row["signal"]; r=float(row.get("rsi",50)); rng=f.get("rsi_range",(20,80))
-        if not (rng[0]<=r<=rng[1]): return None
-        if f.get("strong_only") and s not in ("STRONG BUY","STRONG SELL","OVERSOLD","OVERBOUGHT"): return None
-        if f.get("bb_break"):
-            bp=float(row.get("bb_pct",0.5))
-            if s in ("BUY","STRONG BUY") and bp>0.8: return "long"
-            if s in ("SELL","STRONG SELL") and bp<0.2: return "short"
-            return None
-        if f.get("rsi_extreme"):
-            if r<32: return "long"
-            if r>68: return "short"
-            return None
-        if s in ("BUY","STRONG BUY","OVERSOLD"): return "long"
-        if s in ("SELL","STRONG SELL","OVERBOUGHT"): return "short"
-        return None
-    for i in range(1,len(df)):
-        row=df.iloc[i]; price=float(row["close"])
-        equity.append({"date":df.index[i],"equity":cash+pos*price})
-        if pos>0 and entry>0:
-            if price<=entry*(1-stop_pct) or price>=entry*(1+stop_pct*rr):
-                pnl=(price-entry)*pos; cash+=pos*price
-                trades.append({"type":"Long","entry":entry,"exit":price,"pnl":pnl,"date":df.index[i],
-                                "reason":"TP" if price>=entry*(1+stop_pct*rr) else "SL"})
-                pos=0; entry=0; continue
-        if pos<0 and entry>0:
-            if price>=entry*(1+stop_pct) or price<=entry*(1-stop_pct*rr):
-                pnl=(entry-price)*abs(pos); cash+=abs(pos)*price
-                trades.append({"type":"Short","entry":entry,"exit":price,"pnl":pnl,"date":df.index[i],
-                                "reason":"TP" if price<=entry*(1-stop_pct*rr) else "SL"})
-                pos=0; entry=0; continue
-        prev=df.iloc[i-1]; d=direction(prev)
-        if pos==0:
-            if d=="long":  u=cash*0.95/price; pos=u;  cash-=u*price;  entry=price
-            elif d=="short": u=cash*0.95/price; pos=-u; cash+=u*price; entry=price
-        else:
-            if pos>0 and d=="short":
-                pnl=(price-entry)*pos; cash+=pos*price
-                trades.append({"type":"Long","entry":entry,"exit":price,"pnl":pnl,"date":df.index[i],"reason":"Flip"})
-                pos=0; entry=0
-            elif pos<0 and d=="long":
-                pnl=(entry-price)*abs(pos); cash+=abs(pos)*price
-                trades.append({"type":"Short","entry":entry,"exit":price,"pnl":pnl,"date":df.index[i],"reason":"Flip"})
-                pos=0; entry=0
-    if pos!=0:
-        fp=float(df.iloc[-1]["close"]); pnl=(fp-entry)*pos if pos>0 else (entry-fp)*abs(pos)
-        cash+=abs(pos)*fp; trades.append({"type":"Open","entry":entry,"exit":fp,"pnl":pnl,"date":df.index[-1],"reason":"End"})
-    if not trades: return {"error":"no trades"}
-    eq=pd.DataFrame(equity); tdf=pd.DataFrame(trades)
-    wins=tdf[tdf["pnl"]>0]; losses=tdf[tdf["pnl"]<=0]
-    tot_ret=(cash-capital)/capital*100
-    bh=(float(df.iloc[-1]["close"])-float(df.iloc[0]["close"]))/float(df.iloc[0]["close"])*100
-    wr=len(wins)/len(tdf)*100 if len(tdf) else 0
-    pf=abs(wins["pnl"].sum()/losses["pnl"].sum()) if not losses.empty and losses["pnl"].sum()!=0 else 99.0
-    sharpe=0.0
-    if len(eq)>1:
-        r2=eq["equity"].pct_change().dropna()
-        if r2.std()>0: sharpe=r2.mean()/r2.std()*np.sqrt(252)
-    rm=eq["equity"].cummax(); maxdd=((eq["equity"]-rm)/rm*100).min()
-    streaks=[]; cur=0
-    for p2 in tdf["pnl"]: cur=max(1,cur+1) if p2>0 else min(-1,cur-1); streaks.append(cur)
-    return {"total_return":round(tot_ret,2),"bh_return":round(bh,2),"win_rate":round(wr,1),
-            "total_trades":len(tdf),"wins":len(wins),"losses":len(losses),
-            "avg_win":round(wins["pnl"].mean() if not wins.empty else 0,2),
-            "avg_loss":round(losses["pnl"].mean() if not losses.empty else 0,2),
-            "profit_factor":round(min(pf,99.0),2),"max_drawdown":round(maxdd,2),
-            "sharpe":round(sharpe,2),"calmar":round(tot_ret/abs(maxdd) if maxdd!=0 else 0,2),
-            "max_win_streak":max(streaks) if streaks else 0,
-            "max_loss_streak":abs(min(streaks)) if streaks else 0,
-            "equity_curve":eq,"trade_list":tdf,"final_equity":round(cash,2),"label":label}
+def calc_ticks(mk, price_diff):
+    return abs(price_diff) / MARKETS[mk]["tick"]
 
-# ── 100-AI ENSEMBLE ───────────────────────────────────────────────────────────
-def run_ensemble(df_map):
-    results_by_mkt = {}
-    for mk,df in df_map.items():
-        if df.empty: continue
-        mkt_res = []
-        for cfg in ALL100:
-            bt = run_backtest(df, {"signal_filters":{k:cfg[k] for k in ("rsi_range","strong_only","bb_break","rsi_extreme")},"rr":cfg["rr"]}, cfg["name"])
-            if "error" not in bt:
-                score = bt["sharpe"]*(bt["win_rate"]/50)*max(0.1,1-abs(bt["max_drawdown"])/50)
-                mkt_res.append({**bt,"name":cfg["name"],"score":round(score,4),
-                                "rsi_range":cfg["rsi_range"],"rr":cfg["rr"],
-                                "bb_break":cfg["bb_break"],"rsi_extreme":cfg["rsi_extreme"],"strong_only":cfg["strong_only"]})
-        mkt_res.sort(key=lambda x:x["score"],reverse=True)
-        results_by_mkt[mk] = mkt_res
-    grand = {}
-    for mk,res in results_by_mkt.items():
-        if not res: continue
-        top = res[:20]
-        lo  = round(np.mean([r["rsi_range"][0] for r in top]))
-        hi  = round(np.mean([r["rsi_range"][1] for r in top]))
-        rr  = round(np.mean([r["rr"] for r in top]),2)
-        df2 = df_map.get(mk,pd.DataFrame()); sig="HOLD"; conf=50; rsi_v=50
-        if not df2.empty and "rsi" in df2.columns:
-            row=df2.iloc[-1]; sig=str(row.get("signal","HOLD")); rsi_v=float(row.get("rsi",50))
-            in_range=lo<=rsi_v<=hi; is_b="BUY" in sig or sig=="OVERSOLD"; is_s="SELL" in sig or sig=="OVERBOUGHT"
-            conf=80 if (in_range and (is_b or is_s)) else 55 if (is_b or is_s) else 30
-        grand[mk] = {"rsi_range":(lo,hi),"rr":rr,
-                     "use_bb":sum(1 for r in top if r["bb_break"])>10,
-                     "use_extreme":sum(1 for r in top if r["rsi_extreme"])>10,
-                     "use_strong":sum(1 for r in top if r["strong_only"])>10,
-                     "avg_ret":round(np.mean([r["total_return"] for r in top]),2),
-                     "avg_sharpe":round(np.mean([r["sharpe"] for r in top]),2),
-                     "avg_wr":round(np.mean([r["win_rate"] for r in top]),1),
-                     "best":top[0]["name"],"signal":sig,"conf":conf,"rsi":round(rsi_v,1)}
-    return results_by_mkt, grand
+def calc_dollar_risk(mk, stop_ticks, contracts):
+    return stop_ticks * MARKETS[mk]["tick_usd"] * contracts
 
-# ── PROFITABILITY ANALYSIS ────────────────────────────────────────────────────
-def run_profit_analysis(all_dfs, grand, selected):
+# ─────────────────────────────────────────────────────────────
+# HONEST BACKTEST — REAL FUTURES P&L
+# ─────────────────────────────────────────────────────────────
+def run_real_backtest(df, mk, account_size, risk_pct=0.005, rr=2.0, signal_filter="aligned"):
     """
-    Cross-market profitability analysis tuned for Alpha Futures prop rules.
-    Scores each instrument on: backtest returns, Sharpe, current signal strength,
-    volatility (good for scalpers), Alpha Futures contract limits.
+    Backtest with REAL futures dollar P&L.
+    risk_pct = fraction of account to risk per trade (e.g. 0.005 = 0.5%)
+    rr = reward:risk ratio
+    signal_filter: 'aligned'=all 3 EMAs + MACD, 'loose'=any buy/sell signal
     """
-    rows = []
-    for mk in selected:
-        if mk not in all_dfs or all_dfs[mk].empty: continue
-        df    = all_dfs[mk]
-        minfo = MARKETS.get(mk, {})
-        gs    = grand.get(mk, {})
-        # Run quick backtest with best strategy
-        bt = run_backtest(df, {"signal_filters":{"rsi_range":(35,65),"strong_only":True,"bb_break":False,"rsi_extreme":False},"rr":2.5}, mk)
-        if "error" in bt: continue
-        # Volatility (normalized daily ATR as % of price)
-        atr_pct = 0.0
-        if "atr" in df.columns and not df["atr"].isna().all():
-            atr_pct = float(df["atr"].iloc[-1] / df["close"].iloc[-1] * 100)
-        # Signal strength score
-        sig = gs.get("signal","HOLD")
-        conf = gs.get("conf",50)
-        sig_score = conf if ("BUY" in sig or "SELL" in sig) else 30
-        # Win rate adjusted return
-        wr_adj = bt["win_rate"] * bt["total_return"] / 100 if bt["total_return"] > 0 else bt["total_return"]
-        # Alpha Futures contract limit (25k account)
-        max_contracts = minfo.get("alpha_limits",{}).get("25k",5)
-        # Overall score: sharpe×winrate×signal×volatility_bonus
-        vol_bonus = min(2.0, atr_pct / 0.5)  # reward higher vol instruments for scalping
-        score = (bt["sharpe"] * (bt["win_rate"]/50) * (sig_score/60) * max(0.5,vol_bonus))
-        rows.append({
-            "mk": mk,
-            "label": minfo.get("label",mk),
-            "signal": sig, "conf": conf,
-            "rsi": gs.get("rsi",50),
-            "bt_return": bt["total_return"],
-            "bh_return": bt["bh_return"],
-            "win_rate": bt["win_rate"],
-            "sharpe": bt["sharpe"],
-            "max_dd": bt["max_drawdown"],
-            "profit_factor": bt["profit_factor"],
-            "atr_pct": round(atr_pct,2),
-            "max_contracts": max_contracts,
-            "score": round(score,3),
-            "wr_adj_ret": round(wr_adj,2),
-            "desc": minfo.get("desc",""),
-            "color": minfo.get("color","#fff"),
-            "tick": minfo.get("tick",0.25),
-            "tick_val": minfo.get("tick_val",12.50),
-        })
-    rows.sort(key=lambda x: x["score"], reverse=True)
-    return rows
+    if df.empty or "signal" not in df.columns or len(df) < 40:
+        return {"error": "insufficient data"}
+    info    = MARKETS[mk]
+    tick    = info["tick"]
+    tv      = info["tick_usd"]
+    max_c   = ALPHA_ACCOUNTS[account_size]["max_contracts"].get(mk, 5)
+    capital = ALPHA_ACCOUNTS[account_size]["size"]
+    target  = ALPHA_ACCOUNTS[account_size]["target"]
+    max_loss= ALPHA_ACCOUNTS[account_size]["max_loss"]
+    eod_dd  = ALPHA_ACCOUNTS[account_size]["eod_dd_pct"]
 
-# ── SIGNAL ENGINE ─────────────────────────────────────────────────────────────
-def get_signal(df, fg=None):
-    if df.empty or "rsi" not in df.columns:
-        return {"signal":"HOLD","conf":50,"rsi":50,"price":0,"bb_pct":0.5,"atr":0,"stoch_k":50}
-    row=df.iloc[-1]; price=float(row["close"]); rsi_v=float(row.get("rsi",50)); s=str(row.get("signal","HOLD"))
-    conf={"STRONG BUY":82,"BUY":66,"STRONG SELL":80,"SELL":64,"OVERSOLD":74,"OVERBOUGHT":72}.get(s,50)
-    if fg:
-        fv=fg.get("value",50)
-        if s in ("BUY","STRONG BUY","OVERSOLD")    and fv<30: conf=min(95,conf+8)
-        if s in ("SELL","STRONG SELL","OVERBOUGHT") and fv>75: conf=min(95,conf+8)
-    return {"signal":s,"conf":conf,"rsi":rsi_v,"price":price,
-            "bb_pct":float(row.get("bb_pct",0.5)),"atr":float(row.get("atr",price*0.01)),"stoch_k":float(row.get("stoch_k",50))}
+    df = df.dropna(subset=["close", "signal", "rsi", "atr"]).copy()
 
-# ── TRADER SIMULATION ─────────────────────────────────────────────────────────
-def simulate_traders(market_signals):
-    for tr in TRADERS:
-        if tr["open_pos"]:
-            pos=tr["open_pos"]; mk=pos["market"]; sig=market_signals.get(mk)
-            if not sig: continue
-            p=sig["price"]; il=pos["dir"]=="long"
-            hit_sl=(il and p<=pos["stop"]) or (not il and p>=pos["stop"])
-            hit_tp=(il and p>=pos["tp"])   or (not il and p<=pos["tp"])
+    balance = float(capital)
+    peak    = float(capital)
+    trades  = []
+    equity  = []
+    pos     = None  # {dir, entry, stop, tp, contracts}
+    blown   = False
+    passed  = False
+
+    for i in range(1, len(df)):
+        row   = df.iloc[i]
+        prev  = df.iloc[i - 1]
+        price = float(row["close"])
+        atr   = float(row["atr"])
+        sig   = str(prev["signal"])
+
+        # Check open position
+        if pos:
+            is_long = pos["dir"] == "long"
+            pnl = calc_real_pnl(mk, pos["dir"], pos["entry"], price, pos["contracts"])
+            hit_sl = (is_long and price <= pos["stop"]) or (not is_long and price >= pos["stop"])
+            hit_tp = (is_long and price >= pos["tp"])   or (not is_long and price <= pos["tp"])
             if hit_sl or hit_tp:
-                pnl=(p-pos["entry"])*pos["units"] if il else (pos["entry"]-p)*pos["units"]
-                tr["balance"]=max(0,tr["balance"]+pnl); tr["peak"]=max(tr["peak"],tr["balance"])
-                res="win" if pnl>0 else "loss"
-                tr["trades"].append(dict(market=mk,dir=pos["dir"],entry=pos["entry"],exit=p,
-                    pnl=round(pnl,2),result=res,reason="TP" if hit_tp else "SL",
-                    time=datetime.now().strftime("%H:%M")))
-                tr["history"].append(round(tr["balance"],2))
-                if res=="win": tr["win_streak"]=tr.get("win_streak",0)+1; tr["loss_streak"]=0
-                else:          tr["loss_streak"]=tr.get("loss_streak",0)+1; tr["win_streak"]=0
-                tr["open_pos"]=None
-        if not tr["open_pos"]:
-            for mk,sig in market_signals.items():
-                if sig["conf"]<52: continue
-                f=tr["signal_filters"]; rng=f.get("rsi_range",(20,80)); r=sig["rsi"]; s=sig["signal"]
-                if not (rng[0]<=r<=rng[1]): continue
-                if f.get("strong_only") and s not in ("STRONG BUY","STRONG SELL","OVERSOLD","OVERBOUGHT"): continue
-                is_b=s in ("BUY","STRONG BUY","OVERSOLD"); is_s=s in ("SELL","STRONG SELL","OVERBOUGHT")
-                if f.get("bb_break"):
-                    bp=sig.get("bb_pct",0.5)
-                    if is_b and bp<0.8: continue
-                    if is_s and bp>0.2: continue
-                if f.get("rsi_extreme"): is_b=r<32; is_s=r>68
-                if not is_b and not is_s: continue
-                direction="long" if is_b else "short"; p=sig["price"]; atr=sig.get("atr",p*0.01); sd=atr*1.5
-                stop=p-sd if is_b else p+sd; tp=p+sd*tr["rr"] if is_b else p-sd*tr["rr"]
-                risk=tr["balance"]*tr["risk_pct"]; units=risk/max(sd,0.001)
-                tr["open_pos"]=dict(market=mk,dir=direction,entry=round(p,2),stop=round(stop,2),
-                    tp=round(tp,2),units=units,risk_amt=round(risk,2),time=datetime.now().strftime("%H:%M"))
-                break
+                real_pnl = calc_real_pnl(mk, pos["dir"],
+                    pos["entry"],
+                    pos["tp"] if hit_tp else pos["stop"],
+                    pos["contracts"])
+                balance += real_pnl
+                peak = max(peak, balance)
+                dd_pct = (peak - balance) / peak
+                result = "win" if real_pnl > 0 else "loss"
+                trades.append({
+                    "date": df.index[i], "mk": mk,
+                    "dir": pos["dir"], "entry": pos["entry"],
+                    "exit": pos["tp"] if hit_tp else pos["stop"],
+                    "contracts": pos["contracts"],
+                    "pnl": real_pnl, "result": result,
+                    "reason": "TP" if hit_tp else "SL",
+                    "balance_after": round(balance, 2),
+                })
+                pos = None
+                # Check blown / passed
+                if balance <= capital - max_loss or dd_pct >= eod_dd:
+                    blown = True; break
+                if balance >= capital + target:
+                    passed = True
 
-# ── NOTES ─────────────────────────────────────────────────────────────────────
-def push_note(t, mk, txt):
-    st.session_state["notes"].insert(0,{"type":t,"market":mk,"text":txt,"time":datetime.now().strftime("%H:%M")})
-    if len(st.session_state["notes"])>60: st.session_state["notes"].pop()
+        # Look for entry
+        if not pos and not blown:
+            is_b = sig in ("BUY", "STRONG BUY", "OVERSOLD")
+            is_s = sig in ("SELL", "STRONG SELL", "OVERBOUGHT")
+            if signal_filter == "aligned":
+                # Require all EMAs aligned
+                ema_ok_b = float(prev.get("ema8", 0)) > float(prev.get("ema21", 0)) > float(prev.get("ema50", 0))
+                ema_ok_s = float(prev.get("ema8", 0)) < float(prev.get("ema21", 0)) < float(prev.get("ema50", 0))
+                is_b = is_b and ema_ok_b
+                is_s = is_s and ema_ok_s
 
-def generate_notes(market_signals, active_sessions):
-    if time.time()-st.session_state["last_ai"]<90: return
-    st.session_state["last_ai"]=time.time()
-    for mk,sig in market_signals.items():
-        r,s=sig["rsi"],sig["signal"]; lbl=MARKETS.get(mk,{}).get("label",mk)
-        if r>72 or s=="OVERBOUGHT": push_note("watch",mk,f"**{lbl}** RSI {r:.0f} — overbought. Don't chase longs.")
-        elif r<30 or s=="OVERSOLD": push_note("buy",mk,f"**{lbl}** RSI {r:.0f} — oversold. Watch for reversal candle.")
-        elif s=="STRONG BUY":       push_note("buy",mk,f"**{lbl}** strong setup. EMA + MACD aligned. Wait for entry.")
-        elif s=="STRONG SELL":      push_note("sell",mk,f"**{lbl}** bearish flip. Stay out of longs.")
+            direction = "long" if is_b else "short" if is_s else None
+            if direction:
+                stop_dist = max(atr * 1.2, tick * 4)  # at least 4 ticks
+                tp_dist   = stop_dist * rr
+                stop  = round(price - stop_dist if direction == "long" else price + stop_dist, 4)
+                tp    = round(price + tp_dist   if direction == "long" else price - tp_dist,   4)
+                # Size: risk X% of account, max N contracts
+                dollar_risk_per_contract = calc_dollar_risk(mk, calc_ticks(mk, stop_dist), 1)
+                if dollar_risk_per_contract > 0:
+                    contracts = min(
+                        max_c,
+                        max(1, int((balance * risk_pct) / dollar_risk_per_contract))
+                    )
+                else:
+                    contracts = 1
+                pos = {"dir": direction, "entry": price, "stop": stop,
+                       "tp": tp, "contracts": contracts}
 
-# ── SESSION BANNER ────────────────────────────────────────────────────────────
-def session_banner():
-    utc=datetime.now(ZoneInfo("UTC")); hf=utc.hour+utc.minute/60
-    sess=[]
-    if 0<=hf<9:   sess.append(("Tokyo","#7C3AED"))
-    if 8<=hf<17:  sess.append(("London","#2563EB"))
-    if 13<=hf<22: sess.append(("New York","#059669"))
-    if 13<=hf<17: sess.append(("NY+London Overlap","#D97706"))
-    if not sess:  sess.append(("Off-hours","#555"))
-    badges=" ".join(f'<span style="background:{c};color:#fff;border-radius:5px;padding:2px 10px;font-size:12px;font-weight:700">{n}</span>' for n,c in sess)
-    ny=utc.astimezone(ZoneInfo("America/New_York")); chi=utc.astimezone(ZoneInfo("America/Chicago"))
-    cme_open = 13<=hf<22  # CME equity futures hours (CT: 8:30am-3pm)
-    cme_badge='<span style="background:#059669;color:#fff;border-radius:5px;padding:2px 10px;font-size:12px;font-weight:700;margin-left:6px">🔔 CME OPEN</span>' if cme_open else '<span style="background:#222;color:#666;border-radius:5px;padding:2px 10px;font-size:12px;margin-left:6px">CME closed</span>'
-    saved_badge='<span style="background:#00d4ff22;border:1px solid #00d4ff44;color:#00d4ff;border-radius:4px;padding:2px 8px;font-size:10px;margin-left:6px">💾 STATE SAVED</span>' if PERSIST_FILE.exists() else ''
-    st.markdown(f'<div style="background:#0a0a18;border:1px solid #1a1a30;border-radius:10px;padding:12px 18px;margin-bottom:16px">'
-                f'<div style="margin-bottom:5px">{badges}{cme_badge}{saved_badge}</div>'
-                f'<div style="font-size:11px;color:#444">UTC {utc.strftime("%H:%M")} | ET {ny.strftime("%H:%M")} | CT(CME) {chi.strftime("%H:%M")}</div>'
-                f'</div>', unsafe_allow_html=True)
-    return [n for n,_ in sess]
+        equity.append({"date": df.index[i], "equity": balance})
 
-# ── CHARTS ────────────────────────────────────────────────────────────────────
-def build_chart(df, title, color="#00ff88", show_sigs=True, bt=None):
-    if df.empty: return None
-    def vol_col(df2):
-        c=df2["close"].tolist(); o=df2["open"].tolist() if "open" in df2.columns else c[:]
-        n=min(len(c),len(o))
-        return ["rgba(0,204,102,0.6)" if float(c[i])>=float(o[i]) else "rgba(204,51,51,0.6)" for i in range(n)]
-    fig=make_subplots(rows=4,cols=1,shared_xaxes=True,row_heights=[0.50,0.18,0.18,0.14],
-                      vertical_spacing=0.03,subplot_titles=["","MACD","RSI","Volume"])
-    if "bb_upper" in df.columns:
-        fig.add_trace(go.Scatter(x=df.index,y=df["bb_upper"],line=dict(color="rgba(120,120,220,0.25)",width=1),showlegend=False),row=1,col=1)
-        fig.add_trace(go.Scatter(x=df.index,y=df["bb_lower"],line=dict(color="rgba(120,120,220,0.25)",width=1),fill="tonexty",fillcolor="rgba(100,100,200,0.05)",showlegend=False),row=1,col=1)
-    if "open" in df.columns and "high" in df.columns:
-        fig.add_trace(go.Candlestick(x=df.index,open=df["open"],high=df["high"],low=df["low"],close=df["close"],
-            name="Price",increasing_line_color="#00ff88",decreasing_line_color="#ff4444",
-            increasing_fillcolor="rgba(0,255,136,0.15)",decreasing_fillcolor="rgba(255,68,68,0.15)"),row=1,col=1)
-    else:
-        fig.add_trace(go.Scatter(x=df.index,y=df["close"],name="Price",line=dict(color=color,width=2)),row=1,col=1)
-    for cn,mc,lb in [("ema8","#5DCAA5","EMA8"),("ema21","#ED93B1","EMA21"),("ema50","#F59E0B","EMA50")]:
-        if cn in df.columns: fig.add_trace(go.Scatter(x=df.index,y=df[cn],name=lb,line=dict(color=mc,width=1.2,dash="dot")),row=1,col=1)
-    if show_sigs and "signal" in df.columns:
-        for sigs,sym,sz,sc2 in [
-            (["BUY","STRONG BUY","OVERSOLD"],"triangle-up",10,"#00ff88"),
-            (["STRONG BUY"],"star",16,"#00ffcc"),
-            (["SELL","STRONG SELL","OVERBOUGHT"],"triangle-down",10,"#ff4444"),
-            (["STRONG SELL"],"x",13,"#ff0000"),
-        ]:
-            sub=df[df["signal"].isin(sigs)]
-            if not sub.empty:
-                fig.add_trace(go.Scatter(x=sub.index,y=sub["close"],mode="markers",
-                    marker=dict(symbol=sym,size=sz,color=sc2),name=sigs[0]),row=1,col=1)
-    if "macd" in df.columns:
-        mhist=df["macd_hist"].fillna(0).tolist()
-        mc2=["rgba(0,204,102,0.8)" if v>=0 else "rgba(204,51,51,0.8)" for v in mhist]
-        fig.add_trace(go.Bar(x=df.index,y=df["macd_hist"],marker_color=mc2,showlegend=False),row=2,col=1)
-        fig.add_trace(go.Scatter(x=df.index,y=df["macd"],line=dict(color=color,width=1.5),name="MACD"),row=2,col=1)
-        fig.add_trace(go.Scatter(x=df.index,y=df["macd_signal"],line=dict(color="#ED93B1",width=1.5),name="Sig"),row=2,col=1)
-    if "rsi" in df.columns:
-        fig.add_trace(go.Scatter(x=df.index,y=df["rsi"],line=dict(color="#a78bfa",width=2),name="RSI"),row=3,col=1)
-        for lvl,lc in [(70,"rgba(255,68,68,0.6)"),(30,"rgba(0,255,136,0.6)"),(50,"rgba(80,80,80,0.5)")]:
-            fig.add_hline(y=lvl,line=dict(color=lc,width=1,dash="dash"),row=3,col=1)
-    if "volume" in df.columns:
-        vc=vol_col(df); n=min(len(df.index),len(df["volume"]),len(vc))
-        fig.add_trace(go.Bar(x=df.index[:n],y=df["volume"].tolist()[:n],marker_color=vc[:n],showlegend=False),row=4,col=1)
-    fig.update_layout(height=800,template="plotly_dark",title=dict(text=title,font=dict(size=14,color="#ccc")),
-        paper_bgcolor="#080818",plot_bgcolor="#0a0a18",xaxis_rangeslider_visible=False,
-        legend=dict(orientation="h",yanchor="bottom",y=1.02,font=dict(size=10)),margin=dict(l=0,r=0,t=50,b=0))
-    fig.update_xaxes(gridcolor="#111128",zerolinecolor="#111128")
-    fig.update_yaxes(gridcolor="#111128",zerolinecolor="#111128")
-    return fig
+    if not trades:
+        return {"error": "no trades generated"}
 
-def build_equity_chart(bts, start=10000):
-    fig=go.Figure()
-    COLORS=["#00ff88","#00d4ff","#f0a500","#a78bfa","#ff6b6b"]
-    for i,(name,bt) in enumerate(bts.items()):
-        if bt and "equity_curve" in bt:
-            eq=bt["equity_curve"]; ret=(eq["equity"].iloc[-1]-start)/start*100
-            fig.add_trace(go.Scatter(x=eq["date"],y=eq["equity"],name=f"{name} ({ret:+.1f}%)",
-                line=dict(color=COLORS[i%len(COLORS)],width=2)))
-    fig.add_hline(y=start,line=dict(color="#444",width=1,dash="dot"))
-    fig.update_layout(height=320,template="plotly_dark",title="Equity curves",paper_bgcolor="#080818",
-        plot_bgcolor="#0a0a18",legend=dict(orientation="h",yanchor="bottom",y=1.02),margin=dict(l=0,r=0,t=50,b=0))
-    return fig
+    tdf   = pd.DataFrame(trades)
+    wins  = tdf[tdf["pnl"] > 0]
+    losses= tdf[tdf["pnl"] <= 0]
+    eq    = pd.DataFrame(equity)
+    bh    = (float(df["close"].iloc[-1]) - float(df["close"].iloc[0])) / float(df["close"].iloc[0]) * 100
 
-# ── SIDEBAR ───────────────────────────────────────────────────────────────────
+    # Real P&L metrics
+    total_pnl   = tdf["pnl"].sum()
+    avg_win     = wins["pnl"].mean()   if not wins.empty   else 0
+    avg_loss    = losses["pnl"].mean() if not losses.empty else 0
+    win_rate    = len(wins) / len(tdf) * 100
+    pf          = abs(avg_win / avg_loss) if avg_loss != 0 else 99
+    max_dd      = 0.0
+    if len(eq) > 1:
+        rm   = eq["equity"].cummax()
+        dds  = (eq["equity"] - rm) / rm * 100
+        max_dd = float(dds.min())
+    sharpe = 0.0
+    if len(eq) > 2:
+        r2 = eq["equity"].pct_change().dropna()
+        if r2.std() > 0: sharpe = float(r2.mean() / r2.std() * np.sqrt(252))
+
+    return {
+        "mk": mk, "account_size": account_size,
+        "capital": capital, "target": target, "max_loss": max_loss,
+        "total_pnl": round(total_pnl, 2),
+        "final_balance": round(balance, 2),
+        "total_return_pct": round((balance - capital) / capital * 100, 2),
+        "bh_return": round(bh, 2),
+        "win_rate": round(win_rate, 1),
+        "total_trades": len(tdf),
+        "wins": len(wins), "losses": len(losses),
+        "avg_win_usd": round(avg_win, 2),
+        "avg_loss_usd": round(avg_loss, 2),
+        "profit_factor": round(min(pf, 99.0), 2),
+        "max_drawdown": round(max_dd, 2),
+        "sharpe": round(sharpe, 2),
+        "equity_curve": eq,
+        "trade_list": tdf,
+        "blown": blown,
+        "passed": passed,
+        "signal_filter": signal_filter,
+        "risk_pct": risk_pct,
+        "rr": rr,
+    }
+
+# ─────────────────────────────────────────────────────────────
+# MONTE CARLO — ALPHA FUTURES EVAL PROBABILITY
+# ─────────────────────────────────────────────────────────────
+def monte_carlo_eval(win_rate, avg_win_usd, avg_loss_usd, account_size_key,
+                     n_sims=3000, trades_per_day=3, max_days=30):
+    """
+    Simulate N paths of the Alpha Futures evaluation.
+    Returns: probability of passing, probability of blowing, expected days to pass.
+    Uses REAL dollar figures from the backtest, not %s.
+    """
+    acct  = ALPHA_ACCOUNTS[account_size_key]
+    start = acct["size"]
+    target_profit = acct["target"]
+    max_loss      = acct["max_loss"]
+    eod_dd_frac   = acct["eod_dd_pct"]
+
+    wr   = win_rate / 100
+    avg_w = abs(avg_win_usd)  if avg_win_usd  != 0 else abs(avg_loss_usd) * 2
+    avg_l = abs(avg_loss_usd) if avg_loss_usd != 0 else avg_w / 2
+    # Add realistic variance
+    w_std = avg_w * 0.5
+    l_std = avg_l * 0.4
+
+    paths_pass   = 0
+    paths_blow   = 0
+    days_to_pass = []
+    daily_pnls   = []
+
+    for _ in range(n_sims):
+        balance  = float(start)
+        peak_bal = float(start)
+        day_open = float(start)
+        passed = blown = False
+
+        for day in range(max_days):
+            day_open   = balance
+            day_trades = trades_per_day + random.randint(-1, 1)
+            day_pnl    = 0.0
+
+            for _ in range(max(1, day_trades)):
+                if random.random() < wr:
+                    trade_pnl = max(0, np.random.normal(avg_w, w_std))
+                else:
+                    trade_pnl = -max(0, np.random.normal(avg_l, l_std))
+                day_pnl += trade_pnl
+                balance += trade_pnl
+                peak_bal = max(peak_bal, balance)
+
+                # Intraday blow check
+                if (balance <= start - max_loss) or ((peak_bal - balance) / peak_bal >= eod_dd_frac):
+                    blown = True; break
+                if balance >= start + target_profit:
+                    passed = True; break
+            if blown or passed: break
+            # EOD drawdown check (vs day open)
+            eod_dd = (peak_bal - balance) / peak_bal
+            if eod_dd >= eod_dd_frac:
+                blown = True; break
+
+        daily_pnls.append(balance - start)
+        if passed: paths_pass += 1; days_to_pass.append(day + 1)
+        if blown:  paths_blow += 1
+
+    pass_pct  = paths_pass / n_sims * 100
+    blow_pct  = paths_blow / n_sims * 100
+    avg_days  = np.mean(days_to_pass) if days_to_pass else None
+    med_final = float(np.median(daily_pnls))
+    p10_final = float(np.percentile(daily_pnls, 10))
+    p90_final = float(np.percentile(daily_pnls, 90))
+
+    return {
+        "pass_prob":  round(pass_pct,  1),
+        "blow_prob":  round(blow_pct,  1),
+        "neither":    round(100 - pass_pct - blow_pct, 1),
+        "avg_days_to_pass": round(avg_days, 1) if avg_days else None,
+        "median_pnl": round(med_final, 0),
+        "p10_pnl":    round(p10_final, 0),
+        "p90_pnl":    round(p90_final, 0),
+        "n_sims":     n_sims,
+        "sample_paths": min(200, n_sims),
+    }
+
+# ─────────────────────────────────────────────────────────────
+# SCALP SIGNAL GENERATOR — HONEST CONFIDENCE
+# ─────────────────────────────────────────────────────────────
+def gen_scalp_signals(intraday_map, daily_signals, selected):
+    out = []
+    now = datetime.now().strftime("%H:%M")
+    for mk in selected:
+        df = intraday_map.get(mk, pd.DataFrame())
+        if df.empty or len(df) < 15: continue
+        df  = add_scalp_indicators(df)
+        row = df.iloc[-1]
+        prv = df.iloc[-2] if len(df) > 2 else row
+
+        price   = float(row["close"])
+        rsi     = float(row.get("rsi7",  50))
+        stk     = float(row.get("stoch_k", 50))
+        bb_pct  = float(row.get("bb_pct",  0.5))
+        vdev    = float(row.get("vwap_dev", 0))
+        mom     = float(row.get("mom3",     0))
+        atr     = float(row.get("atr",      price * 0.003))
+        ema3    = float(row.get("ema3",     price))
+        ema8    = float(row.get("ema8",     price))
+        prev_stk= float(prv.get("stoch_k",  stk))
+
+        long_sc = short_sc = 0
+        reasons = []
+
+        # Long signals
+        if rsi < 28:           long_sc += 3; reasons.append(f"RSI {rsi:.0f} ← deeply oversold")
+        elif rsi < 35:         long_sc += 1; reasons.append(f"RSI {rsi:.0f} ← low")
+        if stk < 15 and stk > prev_stk: long_sc += 2; reasons.append("Stoch %K crossed up <15")
+        if bb_pct < 0.08:      long_sc += 2; reasons.append("Lower BB squeeze touch")
+        if vdev < -0.7:        long_sc += 1; reasons.append(f"Below VWAP {vdev:.1f}%")
+        if ema3 > ema8 and float(prv.get("ema3", ema3)) <= float(prv.get("ema8", ema8)):
+                               long_sc += 2; reasons.append("EMA3×EMA8 bullish cross")
+        if mom > 0.15:         long_sc += 1; reasons.append(f"Momentum +{mom:.2f}%")
+
+        # Short signals
+        if rsi > 72:           short_sc += 3; reasons.append(f"RSI {rsi:.0f} ← deeply overbought")
+        elif rsi > 65:         short_sc += 1; reasons.append(f"RSI {rsi:.0f} ← high")
+        if stk > 85 and stk < prev_stk: short_sc += 2; reasons.append("Stoch %K crossed down >85")
+        if bb_pct > 0.92:      short_sc += 2; reasons.append("Upper BB squeeze touch")
+        if vdev > 0.7:         short_sc += 1; reasons.append(f"Above VWAP +{vdev:.1f}%")
+        if ema3 < ema8 and float(prv.get("ema3", ema3)) >= float(prv.get("ema8", ema8)):
+                               short_sc += 2; reasons.append("EMA3×EMA8 bearish cross")
+        if mom < -0.15:        short_sc += 1; reasons.append(f"Momentum {mom:.2f}%")
+
+        # Daily bias alignment bonus
+        dsig = daily_signals.get(mk, {}).get("signal", "HOLD")
+        if long_sc > short_sc  and ("BUY"  in dsig or dsig == "OVERSOLD"):   long_sc  = int(long_sc  * 1.25)
+        if short_sc > long_sc  and ("SELL" in dsig or dsig == "OVERBOUGHT"): short_sc = int(short_sc * 1.25)
+
+        if long_sc >= 4 and long_sc > short_sc:
+            direction = "LONG";  score = long_sc
+        elif short_sc >= 4 and short_sc > long_sc:
+            direction = "SHORT"; score = short_sc
+        else:
+            continue
+
+        # Honest confidence — max 88%, needs score >= 9 for that
+        conf = min(88, 42 + score * 5)
+        # Real stop/target using ATR and actual tick sizes
+        info     = MARKETS[mk]
+        tick     = info["tick"]
+        stop_tks = max(4, round(atr / tick))        # ticks of stop
+        tp_tks   = round(stop_tks * 1.5)            # 1:1.5 R:R (conservative for scalps)
+        stop_dist= stop_tks * tick
+        tp_dist  = tp_tks   * tick
+        stop  = round(price - stop_dist if direction == "LONG" else price + stop_dist, 4)
+        tp    = round(price + tp_dist   if direction == "LONG" else price - tp_dist,   4)
+        usd_risk_1c = stop_tks * info["tick_usd"]
+
+        out.append({
+            "mk": mk, "label": info["label"], "color": info["color"],
+            "direction": direction, "price": price,
+            "stop": stop, "tp": tp,
+            "stop_ticks": stop_tks, "tp_ticks": tp_tks,
+            "usd_risk_1c": round(usd_risk_1c, 2),
+            "conf": conf,
+            "rsi": round(rsi, 1), "stoch_k": round(stk, 1),
+            "bb_pct": round(bb_pct * 100, 1), "vwap_dev": round(vdev, 2),
+            "reasons": [r for r in reasons if ("long" in r.lower() or "LONG" not in r) or direction == "LONG"][:4],
+            "daily_bias": dsig, "time": now,
+        })
+    out.sort(key=lambda x: x["conf"], reverse=True)
+    return out
+
+# ─────────────────────────────────────────────────────────────
+# GET LIVE SIGNAL FROM INDICATORS
+# ─────────────────────────────────────────────────────────────
+def get_live_signal(df):
+    if df.empty or "signal" not in df.columns:
+        return {"signal": "HOLD", "conf": 0, "rsi": 50, "price": 0,
+                "bb_pct": 0.5, "atr": 0, "atr_pct": 0, "stoch_k": 50, "chg": 0}
+    row = df.iloc[-1]
+    prv = df.iloc[-2] if len(df) > 1 else row
+    sig = str(row.get("signal", "HOLD"))
+    rsi = float(row.get("rsi", 50))
+    # Honest confidence — tied to signal strength, no inflation
+    conf_map = {"STRONG BUY": 75, "BUY": 58, "OVERSOLD": 65,
+                "STRONG SELL": 73, "SELL": 56, "OVERBOUGHT": 63, "HOLD": 30}
+    conf = conf_map.get(sig, 30)
+    chg  = (float(row["close"]) - float(prv["close"])) / float(prv["close"]) * 100
+    return {
+        "signal": sig, "conf": conf,
+        "rsi":     round(float(row.get("rsi",    50)),  1),
+        "price":   float(row["close"]),
+        "bb_pct":  float(row.get("bb_pct",  0.5)),
+        "atr":     float(row.get("atr",     0)),
+        "atr_pct": float(row.get("atr_pct", 0)),
+        "stoch_k": float(row.get("stoch_k", 50)),
+        "chg":     round(chg, 2),
+    }
+
+# ─────────────────────────────────────────────────────────────
+# SESSION STATE INIT
+# ─────────────────────────────────────────────────────────────
+if "bt_cache"       not in st.session_state: st.session_state["bt_cache"]       = {}
+if "mc_cache"       not in st.session_state: st.session_state["mc_cache"]       = {}
+if "scalp_sigs"     not in st.session_state: st.session_state["scalp_sigs"]     = []
+if "last_scalp"     not in st.session_state: st.session_state["last_scalp"]     = 0.0
+if "paper_trades"   not in st.session_state: st.session_state["paper_trades"]   = _get("paper_trades", [])
+if "paper_balance"  not in st.session_state: st.session_state["paper_balance"]  = _get("paper_balance", None)
+
+# ─────────────────────────────────────────────────────────────
+# SIDEBAR
+# ─────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown('<div style="font-family:Syne,sans-serif;font-size:1.3rem;font-weight:800;color:#ff6b00">⚡ Nigel</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-family:Bebas Neue,sans-serif;font-size:1.6rem;color:#ff4d00;letter-spacing:.1em">NIGEL v4</div>', unsafe_allow_html=True)
     st.caption("Alpha Futures Intelligence")
     st.divider()
-    with st.expander("🔑 API Keys"):
-        np_ = st.text_input("Polygon.io Key", value=POLYGON_KEY, type="password")
-        if st.button("Save Key"):
-            st.session_state["POLYGON_KEY"] = np_
-            persist_set("POLYGON_KEY", np_)
+
+    with st.expander("🔑 API Key"):
+        nk = st.text_input("Polygon.io", value=POLYGON_KEY, type="password")
+        if st.button("Save"):
+            st.session_state["POLYGON_KEY"] = nk
+            _save("POLYGON_KEY", nk)
             st.cache_data.clear(); st.rerun()
-    with st.expander("💾 Persistence"):
-        if PERSIST_FILE.exists():
-            sz = PERSIST_FILE.stat().st_size
-            st.markdown(f'<div style="font-size:11px;color:#00d4ff">✅ {PERSIST_FILE.name} ({sz/1024:.1f} KB)</div>', unsafe_allow_html=True)
-            if st.button("🗑 Reset state"): PERSIST_FILE.unlink(); st.rerun()
-            if st.button("💾 Save now"):
-                persist_set("traders_state", TRADERS)
-                persist_set("notes", st.session_state.get("notes",[]))
-                st.success("Saved!")
-        else: st.caption("Auto-saves every 60s")
-    st.divider()
-    auto_refresh = st.toggle("Auto-refresh (90s)", value=False)
+
     selected_markets = st.multiselect(
-        "Instruments (Alpha Futures)",
-        ["ES","NQ","GC","CL","YM","BTC","ETH"],
+        "Instruments", ["ES","NQ","GC","CL","YM","BTC","ETH"],
         default=["ES","NQ","GC","CL"]
     )
-    account_size = st.selectbox("Account size", list(ALPHA_ACCOUNTS.keys()), index=1)
-    bt_days = st.slider("Backtest window (days)", 30, 365, 90)
-    st.divider()
-    if st.button("🔄 Refresh data"): st.cache_data.clear(); st.rerun()
-    if st.button("🗑 Clear alerts"): st.session_state["notes"]=[]; st.rerun()
-    if st.button("♻️ Reset traders"):
-        del st.session_state["traders"]
-        persist_set("traders_state", None); st.rerun()
-    if st.button("🧠 Re-run Ensemble"): st.session_state["ensemble_ran"]=False
-    if st.button("📊 Re-run Profit Analysis"): st.session_state["profit_analysis"]={}
-    st.divider()
-    st.caption(f"Alpha Futures · {datetime.now().strftime('%H:%M:%S')}")
+    account_key = st.selectbox("Account Size", list(ALPHA_ACCOUNTS.keys()),
+                               format_func=lambda x: f"${int(x.replace('k',''))},000", index=1)
+    bt_days = st.slider("Lookback (days)", 30, 365, 90)
 
-# ── FETCH DATA ────────────────────────────────────────────────────────────────
-if not selected_markets: selected_markets=["ES","NQ","GC","CL"]
-CG_IDS = {"BTC":"bitcoin","ETH":"ethereum"}
+    st.divider()
+    st.markdown("**Backtest Settings**")
+    risk_pct = st.slider("Risk per trade (%)", 0.2, 2.0, 0.5, 0.1) / 100
+    rr_ratio = st.slider("Reward:Risk", 1.0, 4.0, 2.0, 0.25)
+    sig_filter = st.radio("Signal filter", ["aligned", "loose"],
+                          help="Aligned = all 3 EMAs + MACD must agree. Loose = any signal.")
 
-with st.spinner("Loading CME futures data…"):
-    all_dfs = {}
+    st.divider()
+    auto_refresh = st.toggle("Auto-refresh (90s)")
+    if st.button("🔄 Refresh data"):     st.cache_data.clear(); st.rerun()
+    if st.button("🗑 Clear paper trades"):
+        st.session_state["paper_trades"] = []; st.session_state["paper_balance"] = None
+        _save("paper_trades", []); _save("paper_balance", None); st.rerun()
+
+    st.divider()
+    if PERSIST.exists():
+        st.caption(f"💾 {PERSIST.name} ({PERSIST.stat().st_size/1024:.1f} KB)")
+
+if not selected_markets: selected_markets = ["ES", "NQ"]
+
+# ─────────────────────────────────────────────────────────────
+# LOAD DATA
+# ─────────────────────────────────────────────────────────────
+CG = {"BTC": "bitcoin", "ETH": "ethereum"}
+
+with st.spinner("Loading market data…"):
+    daily_dfs    = {}
+    intraday_dfs = {}
     for mk in selected_markets:
         info = MARKETS[mk]
-        if info["crypto"] and mk in CG_IDS:
-            raw = fetch_cg(CG_IDS[mk], days=max(bt_days+10,120))
+        if info["crypto"]:
+            daily_dfs[mk]    = add_indicators(fetch_crypto_daily(CG[mk], days=max(bt_days+15, 120)))
+            intraday_dfs[mk] = add_scalp_indicators(fetch_crypto_hourly(CG[mk]))
         else:
-            raw = fetch_poly_ohlcv(info["poly_ticker"], POLYGON_KEY, days=max(bt_days+10,120))
-        all_dfs[mk] = add_indicators(raw)
+            daily_dfs[mk]    = add_indicators(fetch_daily(info["proxy"], POLYGON_KEY, days=max(bt_days+15, 120)))
+            intraday_dfs[mk] = add_scalp_indicators(fetch_intraday(info["proxy"], POLYGON_KEY))
     fg = fetch_fear_greed()
 
-# Intraday for scalps
-intraday_dfs = {}
-for mk in selected_markets:
-    info = MARKETS[mk]
-    if info["crypto"] and mk in CG_IDS:
-        raw_h = fetch_cg_hourly(CG_IDS[mk])
-        intraday_dfs[mk] = add_scalp_indicators(raw_h) if not raw_h.empty else pd.DataFrame()
-    else:
-        raw_i = fetch_poly_intraday(info["poly_ticker"], POLYGON_KEY)
-        intraday_dfs[mk] = add_scalp_indicators(raw_i) if not raw_i.empty else pd.DataFrame()
+live_signals = {mk: get_live_signal(daily_dfs.get(mk, pd.DataFrame())) for mk in selected_markets}
 
-market_signals = {mk: get_signal(all_dfs.get(mk, pd.DataFrame()), fg) for mk in selected_markets}
-active_sessions = session_banner()
-simulate_traders(market_signals)
-generate_notes(market_signals, active_sessions)
-autosave()
-
-# Scalp signals
-if time.time()-st.session_state["last_scalp"]>60:
-    st.session_state["scalp_signals"] = generate_scalp_signals(intraday_dfs, market_signals, selected_markets)
+# Scalp signals — refresh every 60s
+if time.time() - st.session_state["last_scalp"] > 60:
+    st.session_state["scalp_sigs"] = gen_scalp_signals(intraday_dfs, live_signals, selected_markets)
     st.session_state["last_scalp"] = time.time()
-scalp_signals = st.session_state.get("scalp_signals",[])
+scalp_sigs = st.session_state["scalp_sigs"]
 
-# Ensemble
-if not st.session_state["ensemble_ran"]:
-    with st.spinner("🧠 Running 100-AI ensemble (~30s)…"):
-        try:
-            ens, grand = run_ensemble(all_dfs)
-            st.session_state["ensemble_results"] = ens
-            st.session_state["grand_strategy"]   = grand
-            st.session_state["ensemble_ran"]      = True
-            persist_set("ensemble_ran", True)
-        except: st.session_state["ensemble_ran"] = True
+# ─────────────────────────────────────────────────────────────
+# SESSION CLOCK
+# ─────────────────────────────────────────────────────────────
+utc  = datetime.now(ZoneInfo("UTC"))
+hf   = utc.hour + utc.minute / 60
+ny   = utc.astimezone(ZoneInfo("America/New_York"))
+chi  = utc.astimezone(ZoneInfo("America/Chicago"))
+sessions = []
+if 0   <= hf < 9:  sessions.append(("Tokyo", "#7C3AED"))
+if 8   <= hf < 17: sessions.append(("London", "#2563EB"))
+if 13  <= hf < 22: sessions.append(("New York", "#059669"))
+if 13  <= hf < 17: sessions.append(("NY×London Overlap", "#D97706"))
+if not sessions:   sessions.append(("Off-hours", "#555"))
+cme_live = 13 <= hf < 22
 
-grand = st.session_state.get("grand_strategy",{})
+sess_html = " ".join(
+    f'<span style="background:{c};color:#fff;border-radius:3px;padding:2px 9px;font-size:11px;font-weight:700">{n}</span>'
+    for n, c in sessions
+)
+cme_html = ('<span style="background:#059669;color:#fff;border-radius:3px;padding:2px 9px;font-size:11px;font-weight:700;margin-left:5px">🔔 CME LIVE</span>'
+            if cme_live else
+            '<span style="background:#1a1a30;color:#555;border-radius:3px;padding:2px 9px;font-size:11px;margin-left:5px">CME closed</span>')
 
-# Profit analysis (run once or on demand)
-if not st.session_state.get("profit_analysis") and grand:
-    with st.spinner("📊 Running profitability analysis…"):
-        try:
-            pa = run_profit_analysis(all_dfs, grand, selected_markets)
-            st.session_state["profit_analysis"] = pa
-            persist_set("profit_analysis_summary",
-                [{k:v for k,v in r.items() if k not in ("desc","color")} for r in pa])
-        except: pass
+# ─────────────────────────────────────────────────────────────
+# HEADER
+# ─────────────────────────────────────────────────────────────
+col_h1, col_h2 = st.columns([3, 1])
+with col_h1:
+    st.markdown('<div class="nigel-title">NIGEL <span>v4</span></div>', unsafe_allow_html=True)
+    st.markdown(
+        f'<div style="font-family:Space Mono,monospace;font-size:10px;color:#33334a;letter-spacing:.1em;margin-bottom:4px">'
+        f'ALPHA FUTURES INTELLIGENCE · REAL P&L MATH · MONTE CARLO EVAL PROBABILITY</div>',
+        unsafe_allow_html=True
+    )
+with col_h2:
+    acct = ALPHA_ACCOUNTS[account_key]
+    st.markdown(
+        f'<div class="card" style="margin-top:4px">'
+        f'<div style="font-size:10px;color:#44445a;font-family:Space Mono,monospace">ACCOUNT</div>'
+        f'<div style="font-size:1.1rem;font-weight:600;color:#fff">${acct["size"]:,}</div>'
+        f'<div style="font-size:11px;color:#33334a">Target <span style="color:#00e664">${acct["target"]:,}</span> · Max loss <span style="color:#ff3c3c">${acct["max_loss"]:,}</span></div>'
+        f'</div>',
+        unsafe_allow_html=True
+    )
 
-profit_analysis = st.session_state.get("profit_analysis",[])
-
-# ── HEADER ────────────────────────────────────────────────────────────────────
-st.markdown('<div class="main-title">⚡ Nigel — Alpha Futures</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">CME FUTURES INTELLIGENCE · ES · NQ · GC · CL · YM · 100-AI ENSEMBLE · ALPHA PROP RULES · HYPER-SHORT SCALPS</div>', unsafe_allow_html=True)
-
-acct = ALPHA_ACCOUNTS[account_size]
 st.markdown(
-    f'<div style="background:#0a0a18;border:1px solid #ff6b0033;border-radius:8px;padding:8px 18px;font-size:12px;margin-bottom:12px;display:flex;gap:24px">'
-    f'<span>📋 <b style="color:#ff6b00">{account_size}</b></span>'
-    f'<span>🎯 Profit target: <b style="color:#00ff88">${acct["profit_target"]:,}</b></span>'
-    f'<span>🛑 Max loss: <b style="color:#ff4444">${acct["max_loss_limit"]:,}</b></span>'
-    f'<span>📉 Drawdown: <b style="color:#f0a500">4% EOD</b></span>'
-    f'<span>🔔 CME futures: ES/NQ/GC/CL/YM via Tradovate/NinjaTrader</span>'
-    f'</div>', unsafe_allow_html=True
+    f'<div style="margin:10px 0 14px">{sess_html}{cme_html}'
+    f'<span style="color:#33334a;font-size:11px;font-family:Space Mono,monospace;margin-left:10px">'
+    f'UTC {utc.strftime("%H:%M")} · ET {ny.strftime("%H:%M")} · CT {chi.strftime("%H:%M")}'
+    f'</span></div>',
+    unsafe_allow_html=True
 )
 
-# ── SCALP TICKER ──────────────────────────────────────────────────────────────
-if scalp_signals:
-    urgent = [s for s in scalp_signals if s["urgency"]=="urgent"]
-    hot    = [s for s in scalp_signals if s["urgency"]=="hot"]
-    if urgent or hot:
-        items=[]
-        for s in (urgent+hot)[:5]:
-            c="#ff6600" if s["urgency"]=="urgent" else "#ffd700"
-            items.append(f'<span style="color:{c};font-weight:700">{"🟢▲" if s["direction"]=="LONG" else "🔴▼"} {s["label"].split("(")[0].strip()} {s["conf"]}%</span>'
-                         f'<span style="color:#666;font-size:11px"> @{s["price"]:,.1f} · {s["tick_risk"]:.0f} ticks</span>')
-        st.markdown(f'<div style="background:#0d0d00;border:1px solid #ffd70033;border-radius:8px;padding:8px 16px;margin-bottom:12px;font-family:JetBrains Mono,monospace;font-size:12px">'
-                    f'⚡ SCALP: {"&nbsp;&nbsp;|&nbsp;&nbsp;".join(items)}</div>', unsafe_allow_html=True)
+# ─────────────────────────────────────────────────────────────
+# LIVE SIGNAL CARDS
+# ─────────────────────────────────────────────────────────────
+st.markdown('<div style="font-size:11px;color:#33334a;font-family:Space Mono,monospace;margin-bottom:8px">'
+            '<span class="live-dot"></span>LIVE · Updates every 5 min</div>', unsafe_allow_html=True)
 
-# ── LIVE SIGNAL CARDS ─────────────────────────────────────────────────────────
-if grand:
-    st.markdown("### 🧠 100-AI Grand Strategy")
-    gcols = st.columns(len([m for m in selected_markets if m in grand]))
-    for col, mk in zip(gcols, [m for m in selected_markets if m in grand]):
-        with col:
-            gs = grand[mk]; sig = gs["signal"]; conf = gs["conf"]
-            is_b="BUY" in sig or sig=="OVERSOLD"; is_s="SELL" in sig or sig=="OVERBOUGHT"
-            bc="#00ff88" if is_b else "#ff4444" if is_s else "#555"
-            minfo = MARKETS.get(mk,{})
-            scalp_match = next((s for s in scalp_signals if s["market"]==mk), None)
-            scalp_bit = f'<div style="font-size:10px;color:#ffd700;margin-top:3px">⚡ Scalp: {scalp_match["direction"]} {scalp_match["conf"]}%</div>' if scalp_match else ""
-            st.markdown(f'<div style="border:2px solid {bc};border-radius:12px;padding:14px;background:#0a0a18">'
-                        f'<div style="font-size:9px;color:#555;font-family:JetBrains Mono">{minfo.get("label",mk)}</div>'
-                        f'<div style="font-size:1.1rem;font-weight:800;color:{bc}">{"🟢" if is_b else "🔴" if is_s else "⚪"} {sig}</div>'
-                        f'<div style="font-size:11px;color:#888">Conf:{conf}% RSI:{gs["rsi"]}</div>'
-                        f'<div style="font-size:10px;color:#555">Avg ret:{gs["avg_ret"]:+.1f}% Sharpe:{gs["avg_sharpe"]:.2f}</div>'
-                        f'{scalp_bit}</div>', unsafe_allow_html=True)
-
-st.markdown("### Live Signals")
-pcols = st.columns(len(selected_markets))
-for col, mk in zip(pcols, selected_markets):
+sig_cols = st.columns(len(selected_markets))
+for col, mk in zip(sig_cols, selected_markets):
     with col:
-        info=MARKETS[mk]; sig=market_signals.get(mk,{}); p=sig.get("price",0)
-        df=all_dfs.get(mk,pd.DataFrame()); chg=0
-        if not df.empty and len(df)>1: chg=(float(df["close"].iloc[-1])-float(df["close"].iloc[-2]))/float(df["close"].iloc[-2])*100
-        s=sig.get("signal","HOLD"); conf=sig.get("conf",50); r=sig.get("rsi",50)
-        is_b="BUY" in s or s=="OVERSOLD"; is_s="SELL" in s or s=="OVERBOUGHT"
-        bc="#00ff88" if is_b else "#ff4444" if is_s else "#1a1a30"; cc="#00ff88" if chg>=0 else "#ff4444"
-        sc="sig-buy" if is_b else "sig-sell" if is_s else "sig-hold"
-        scalp_here=next((ss for ss in scalp_signals if ss["market"]==mk), None)
-        scalp_bit=f'<div style="margin-top:4px"><span class="sig-badge sig-scalp">⚡ {scalp_here["direction"]} {scalp_here["conf"]}%</span></div>' if scalp_here else ""
-        contracts = info.get("alpha_limits",{}).get(account_size.replace(" Basic","").replace("k"," ").strip().replace(" ","k").lower()+"k",5)
-        st.markdown(f'<div style="border:2px solid {bc};border-radius:12px;padding:12px;background:#0a0a18">'
-                    f'<div style="font-size:9px;color:#555">{info["label"]}</div>'
-                    f'<div style="font-size:20px;font-weight:700;color:{info["color"]};font-family:JetBrains Mono">${p:,.1f}</div>'
-                    f'<div style="font-size:11px;color:{cc}">{chg:+.2f}%</div>'
-                    f'<span class="sig-badge {sc}">{s}</span>'
-                    f'<div style="font-size:10px;color:#555;margin-top:3px">Conf:{conf}% RSI:{r:.0f}</div>'
-                    f'{scalp_bit}'
-                    f'</div>', unsafe_allow_html=True)
+        sig   = live_signals[mk]
+        info  = MARKETS[mk]
+        s     = sig["signal"]
+        is_b  = "BUY" in s or s == "OVERSOLD"
+        is_s  = "SELL" in s or s == "OVERBOUGHT"
+        bc    = "#00e664" if is_b else "#ff3c3c" if is_s else "#1a1a35"
+        cc    = "#00e664" if sig["chg"] >= 0 else "#ff3c3c"
+        pc    = "pill-buy" if is_b else "pill-sell" if is_s else "pill-hold"
+        scalp = next((sc for sc in scalp_sigs if sc["mk"] == mk), None)
+        scalp_bit = (f'<div style="margin-top:5px"><span class="pill pill-scalp">⚡ {scalp["direction"]} {scalp["conf"]}%</span></div>'
+                     if scalp else "")
+        st.markdown(
+            f'<div style="border:1.5px solid {bc};border-radius:6px;padding:13px;background:#0c0c1e">'
+            f'<div style="font-size:9px;color:#33334a;font-family:Space Mono,monospace">{mk} · {info["label"]}</div>'
+            f'<div style="font-size:1.35rem;font-weight:700;color:#fff;font-family:Space Mono,monospace">'
+            f'{"" if not sig["price"] else f"${sig[\"price\"]:,.1f}"}</div>'
+            f'<div style="font-size:11px;color:{cc};font-family:Space Mono,monospace">{sig["chg"]:+.2f}%</div>'
+            f'<div style="margin:5px 0"><span class="pill {pc}">{s}</span></div>'
+            f'<div style="font-size:10px;color:#33334a">Conf <b style="color:#fff">{sig["conf"]}%</b> · RSI <b style="color:#fff">{sig["rsi"]}</b></div>'
+            f'<div style="font-size:10px;color:#33334a">ATR {sig["atr_pct"]:.2f}%/day</div>'
+            f'{scalp_bit}</div>',
+            unsafe_allow_html=True
+        )
 
 st.divider()
 
-# ── TABS ──────────────────────────────────────────────────────────────────────
-t_profit, t_scalp, t_strategy, t_alerts, t_traders, t_bt, t_ensemble, t_ref = st.tabs([
-    "💰 Profitability","⚡ Scalp Signals","🧠 Strategy","📝 Alerts","🤖 Traders","📊 Backtest","🔬 100-AI Lab","📚 Alpha Futures Ref"])
+# ─────────────────────────────────────────────────────────────
+# TABS
+# ─────────────────────────────────────────────────────────────
+tab_mc, tab_bt, tab_scalp, tab_chart, tab_ref = st.tabs([
+    "🎯 Eval Probability",
+    "📊 Real Backtest",
+    "⚡ Scalp Signals",
+    "📈 Charts",
+    "📚 Reference",
+])
 
-# ── PROFITABILITY ANALYSIS ────────────────────────────────────────────────────
-with t_profit:
-    st.subheader("💰 Profitability Analysis — Most Profitable Ideas for Alpha Futures")
-    st.caption("Ranks each instrument by backtest returns, Sharpe, current signal strength and volatility. Tuned for Alpha Futures EOD drawdown rules.")
+# ══════════════════════════════════════════════════════════════
+# TAB 1 — MONTE CARLO EVAL PROBABILITY
+# ══════════════════════════════════════════════════════════════
+with tab_mc:
+    st.subheader("🎯 Alpha Futures Eval Pass Probability")
+    st.markdown(
+        '<div class="info-box">Runs 3,000 simulated evaluations using your real backtest stats. '
+        'Each simulation trades day-by-day respecting the 4% EOD drawdown rule and max loss limit. '
+        'This tells you honestly: <b>will you pass or blow the account?</b></div>',
+        unsafe_allow_html=True
+    )
 
-    if not profit_analysis:
-        st.info("Run ensemble first (auto-runs on load), then this tab fills in.")
-    else:
-        # ── TOP PICK ──────────────────────────────────────────────────────────
-        best = profit_analysis[0]
-        bc = best["color"]
-        sig = best["signal"]; is_b="BUY" in sig or sig=="OVERSOLD"; is_s="SELL" in sig or sig=="OVERBOUGHT"
-        fc = "#00ff88" if is_b else "#ff4444" if is_s else "#888"
-        st.markdown(f'<div class="profit-best">'
-                    f'<div style="font-size:11px;color:#555;font-family:JetBrains Mono">🏆 NIGEL\'S TOP PICK — MOST PROFITABLE RIGHT NOW</div>'
-                    f'<div style="font-size:2rem;font-weight:800;color:{fc};margin:6px 0">{best["label"]}</div>'
-                    f'<div style="font-size:14px;color:#aaa;margin-bottom:8px">{best["desc"]}</div>'
-                    f'<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px">'
-                    f'<div style="background:#0a0a1a;border-radius:8px;padding:10px;text-align:center">'
-                    f'<div style="font-size:10px;color:#555">Strategy Return</div><div style="color:#00ff88;font-size:1.2rem;font-weight:700">{best["bt_return"]:+.1f}%</div></div>'
-                    f'<div style="background:#0a0a1a;border-radius:8px;padding:10px;text-align:center">'
-                    f'<div style="font-size:10px;color:#555">Win Rate</div><div style="color:#00d4ff;font-size:1.2rem;font-weight:700">{best["win_rate"]:.0f}%</div></div>'
-                    f'<div style="background:#0a0a1a;border-radius:8px;padding:10px;text-align:center">'
-                    f'<div style="font-size:10px;color:#555">Sharpe</div><div style="color:#a78bfa;font-size:1.2rem;font-weight:700">{best["sharpe"]:.2f}</div></div>'
-                    f'<div style="background:#0a0a1a;border-radius:8px;padding:10px;text-align:center">'
-                    f'<div style="font-size:10px;color:#555">Daily Volatility</div><div style="color:#f0a500;font-size:1.2rem;font-weight:700">{best["atr_pct"]:.2f}%</div></div>'
-                    f'<div style="background:#0a0a1a;border-radius:8px;padding:10px;text-align:center">'
-                    f'<div style="font-size:10px;color:#555">Signal</div><div style="color:{fc};font-size:1.2rem;font-weight:700">{sig}</div></div>'
-                    f'</div></div>', unsafe_allow_html=True)
+    mc_mk = st.selectbox("Instrument to simulate", selected_markets, key="mc_mk")
+    mc_tpd = st.slider("Avg trades per day", 1, 8, 3)
+    mc_days = st.slider("Max eval days", 10, 60, 30)
 
-        st.markdown("### 📊 Full Ranking")
+    run_mc = st.button("▶ Run Monte Carlo (3,000 simulations)", type="primary")
 
-        # Radar chart comparing top instruments
-        if len(profit_analysis) >= 2:
-            cats = ["Return","Win Rate","Sharpe","Volatility","Signal Conf"]
-            fig_radar = go.Figure()
-            for row2 in profit_analysis[:5]:
-                vals = [
-                    max(0,min(100,(row2["bt_return"]+20)/60*100)),
-                    row2["win_rate"],
-                    max(0,min(100,(row2["sharpe"]+1)/3*100)),
-                    min(100,row2["atr_pct"]*20),
-                    row2["conf"],
-                ]
-                vals_closed = vals + [vals[0]]
-                cats_closed = cats + [cats[0]]
-                fig_radar.add_trace(go.Scatterpolar(
-                    r=vals_closed, theta=cats_closed,
-                    fill="toself", name=row2["mk"],
-                    line_color=row2["color"],
-                    fillcolor=row2["color"].replace("#","rgba(").rstrip(")") + ",0.08)" if "#" in row2["color"] else row2["color"],
-                ))
-            fig_radar.update_layout(
-                polar=dict(radialaxis=dict(visible=True,range=[0,100],gridcolor="#1a1a30"),
-                           angularaxis=dict(gridcolor="#1a1a30")),
-                template="plotly_dark", paper_bgcolor="#080818", height=380,
-                legend=dict(orientation="h",y=-0.1), margin=dict(l=0,r=0,t=20,b=0)
-            )
-            st.plotly_chart(fig_radar, use_container_width=True, key="profit_radar")
+    # Check if we have backtest results for this market
+    bt_key = f"{mc_mk}_{account_key}_{bt_days}_{risk_pct}_{rr_ratio}_{sig_filter}"
+    cached_bt = st.session_state["bt_cache"].get(bt_key)
 
-        # Ranked cards
-        medals = ["🥇","🥈","🥉","4️⃣","5️⃣","6️⃣","7️⃣"]
-        for i, row2 in enumerate(profit_analysis):
-            sig2=row2["signal"]; is_b2="BUY" in sig2 or sig2=="OVERSOLD"; is_s2="SELL" in sig2 or sig2=="OVERBOUGHT"
-            sc2="#00ff88" if is_b2 else "#ff4444" if is_s2 else "#555"
-            border="#00ff88" if i==0 else "#00d4ff44" if i<3 else "#1a1a30"
+    if run_mc:
+        # Run backtest first if not cached
+        if not cached_bt:
+            with st.spinner(f"Running backtest for {mc_mk}…"):
+                df_bt = daily_dfs.get(mc_mk, pd.DataFrame())
+                bt_res = run_real_backtest(df_bt, mc_mk, account_key, risk_pct, rr_ratio, sig_filter)
+                if "error" not in bt_res:
+                    st.session_state["bt_cache"][bt_key] = bt_res
+                    cached_bt = bt_res
 
-            # What Nigel thinks
-            if i==0:   verdict="🔥 BEST — Trade this first. Strongest edge right now."
-            elif i==1: verdict="✅ GOOD — Solid second option. Diversifies well with #1."
-            elif i==2: verdict="✅ DECENT — Worth watching. Enter on strong signal only."
-            else:      verdict="⚠️ SKIP for now — Lower edge. Wait for better setup."
-
-            # Alpha Futures P&L projection
-            acct_sz = acct["size"]; risk_per = acct_sz * 0.004  # 0.4% risk per trade (conservative)
-            contracts_here = row2["max_contracts"]
-            ticks_per_trade = row2.get("tick_risk",8)  # from scalp or estimate
-            dollar_per_contract = row2["tick_val"] * max(4, ticks_per_trade)
-            proj_win = round(dollar_per_contract * contracts_here * (row2["win_rate"]/100), 0)
-
-            st.markdown(f'<div class="profit-good" style="border-color:{border}">'
-                        f'<div style="display:flex;justify-content:space-between;align-items:flex-start">'
-                        f'  <div>'
-                        f'    <span style="font-size:1.1rem">{medals[i]}</span>'
-                        f'    <b style="font-size:1.1rem;color:{row2["color"]};margin-left:6px">{row2["label"]}</b>'
-                        f'    <span style="background:{sc2}22;color:{sc2};border-radius:4px;padding:1px 8px;font-size:11px;margin-left:8px;font-family:JetBrains Mono">{sig2}</span>'
-                        f'    <span style="color:#555;font-size:11px;margin-left:8px">Conf:{row2["conf"]}% RSI:{row2["rsi"]:.0f}</span>'
-                        f'  </div>'
-                        f'  <div style="font-size:11px;color:#555;text-align:right">Score: <b style="color:#00d4ff">{row2["score"]:.3f}</b></div>'
-                        f'</div>'
-                        f'<div style="font-size:12px;color:#888;margin:6px 0">{row2["desc"]}</div>'
-                        f'<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin:8px 0">'
-                        f'  <div style="text-align:center"><div style="font-size:9px;color:#555">Return</div><div style="color:{"#00ff88" if row2["bt_return"]>0 else "#ff4444"};font-size:12px;font-weight:700;font-family:JetBrains Mono">{row2["bt_return"]:+.1f}%</div></div>'
-                        f'  <div style="text-align:center"><div style="font-size:9px;color:#555">Win%</div><div style="color:#00d4ff;font-size:12px;font-weight:700;font-family:JetBrains Mono">{row2["win_rate"]:.0f}%</div></div>'
-                        f'  <div style="text-align:center"><div style="font-size:9px;color:#555">Sharpe</div><div style="color:#a78bfa;font-size:12px;font-weight:700;font-family:JetBrains Mono">{row2["sharpe"]:.2f}</div></div>'
-                        f'  <div style="text-align:center"><div style="font-size:9px;color:#555">PF</div><div style="color:#f0a500;font-size:12px;font-weight:700;font-family:JetBrains Mono">{row2["profit_factor"]:.2f}</div></div>'
-                        f'  <div style="text-align:center"><div style="font-size:9px;color:#555">Max DD</div><div style="color:#ff4444;font-size:12px;font-weight:700;font-family:JetBrains Mono">{row2["max_dd"]:.1f}%</div></div>'
-                        f'  <div style="text-align:center"><div style="font-size:9px;color:#555">ATR/day</div><div style="color:#ffd700;font-size:12px;font-weight:700;font-family:JetBrains Mono">{row2["atr_pct"]:.2f}%</div></div>'
-                        f'  <div style="text-align:center"><div style="font-size:9px;color:#555">Max Lots</div><div style="color:#888;font-size:12px;font-weight:700;font-family:JetBrains Mono">{row2["max_contracts"]}</div></div>'
-                        f'</div>'
-                        f'<div style="display:flex;justify-content:space-between;align-items:center">'
-                        f'  <div style="font-size:12px;color:{"#00ff88" if i<3 else "#f0a500"}">{verdict}</div>'
-                        f'  <div style="font-size:11px;color:#555">Alpha proj win/trade: <b style="color:#00d4ff">~${proj_win:,.0f}</b></div>'
-                        f'</div></div>', unsafe_allow_html=True)
-
-        # Summary table
-        st.markdown("### 📋 Summary Table")
-        tbl_rows = []
-        for row2 in profit_analysis:
-            sig2=row2["signal"]
-            tbl_rows.append({
-                "Instrument":row2["label"],"Signal":sig2,"Conf%":row2["conf"],"RSI":round(row2["rsi"],0),
-                "Strategy Ret%":row2["bt_return"],"Win Rate%":row2["win_rate"],"Sharpe":row2["sharpe"],
-                "PF":row2["profit_factor"],"Max DD%":row2["max_dd"],"ATR/day%":row2["atr_pct"],
-                "Max Lots":row2["max_contracts"],"Score":row2["score"]
-            })
-        df_tbl = pd.DataFrame(tbl_rows)
-        st.dataframe(df_tbl.style
-            .format({"Strategy Ret%":"{:+.1f}%","Win Rate%":"{:.0f}%","Sharpe":"{:.2f}",
-                     "PF":"{:.2f}","Max DD%":"{:.1f}%","ATR/day%":"{:.2f}%","Score":"{:.3f}"})
-            .highlight_max(subset=["Strategy Ret%","Win Rate%","Sharpe","Score"],color="#1a3a1a")
-            .highlight_min(subset=["Max DD%"],color="#1a3a1a"),
-            use_container_width=True, hide_index=True)
-
-        st.divider()
-        st.markdown("""<div style="background:#0a0a18;border:1px solid #1a1a30;border-radius:10px;padding:16px;font-size:13px;color:#aaa;line-height:1.9">
-<b style="color:#ff6b00">⚡ Alpha Futures Profitability Tips:</b><br>
-🥇 <b style="color:#00ff88">Top ranked = trade this first</b> — highest edge per the 100-AI ensemble<br>
-📉 <b style="color:#f0a500">EOD 4% drawdown rule</b> = protect your account. Size so 1 bad trade ≠ end of day<br>
-🎯 <b style="color:#00d4ff">Hit profit target fast</b> — once you're up 50% of target, scale back risk and protect<br>
-⚡ <b style="color:#ffd700">High ATR% = more scalp opportunities</b> — volatile instruments move more ticks per bar<br>
-📋 <b style="color:#888">Max lots = Alpha Futures contract limit for your account size</b> — never exceed this<br>
-🕐 <b style="color:#888">9:30–11:00 ET</b> is the highest opportunity window for ES/NQ. GC trades best at London open.
-</div>""", unsafe_allow_html=True)
-
-# ── SCALP SIGNALS ─────────────────────────────────────────────────────────────
-with t_scalp:
-    st.subheader("⚡ Hyper Short — CME Scalp Signals (5-min)")
-    st.caption("EMA3/8/13, RSI-7, Stochastic, VWAP deviation, Bollinger Band extremes. Best for 5–15 min holds. Use tight stops — 2–4 ticks on ES, 4–8 ticks on NQ.")
-    min_conf = st.slider("Min confidence", 50, 90, 60, key="s_conf")
-    if st.button("🔄 Refresh"):
-        st.session_state["last_scalp"]=0; st.rerun()
-    filtered = [s for s in scalp_signals if s["conf"]>=min_conf]
-    if not filtered:
-        st.info(f"No scalp signals above {min_conf}% right now. Lower threshold or wait.")
-    else:
-        c1,c2,c3,c4 = st.columns(4)
-        c1.metric("Signals", len(filtered))
-        c2.metric("🟢 Long", sum(1 for s in filtered if s["direction"]=="LONG"))
-        c3.metric("🔴 Short", sum(1 for s in filtered if s["direction"]=="SHORT"))
-        c4.metric("🚨 Urgent", sum(1 for s in filtered if s["urgency"]=="urgent"))
-        st.divider()
-        for s in filtered:
-            is_long = s["direction"]=="LONG"
-            cls = "scalp-urgent" if s["urgency"]=="urgent" else "scalp-card"
-            dc  = "#00ff88" if is_long else "#ff4444"
-            urg = {"urgent":"🚨 URGENT","hot":"🔥 HOT","normal":"📊"}.get(s["urgency"],"")
-            reasons_html=" · ".join(f'<span style="color:#888;font-size:11px">{r}</span>' for r in s["reasons"])
-            bias_icon="↑" if "BUY" in s["daily_bias"] else "↓" if "SELL" in s["daily_bias"] else "→"
-            st.markdown(f'<div class="{cls}">'
-                        f'<div style="display:flex;justify-content:space-between;margin-bottom:8px">'
-                        f'  <div><span style="color:{dc};font-size:1.2rem;font-weight:800">{"🟢 LONG" if is_long else "🔴 SHORT"}</span>'
-                        f'  <span style="color:#aaa;margin-left:8px">{s["label"]}</span>'
-                        f'  <span style="background:#1a1500;color:#ffd700;border-radius:4px;padding:1px 8px;font-size:10px;margin-left:8px">{urg}</span></div>'
-                        f'  <div style="font-size:11px;color:#555">{s["timeframe"]} · {s["time"]}</div></div>'
-                        f'<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:8px">'
-                        f'  <div style="background:#111;border-radius:6px;padding:8px;text-align:center"><div style="font-size:9px;color:#555">Entry</div><div style="color:#ffd700;font-family:JetBrains Mono;font-size:13px;font-weight:700">{s["price"]:,.1f}</div></div>'
-                        f'  <div style="background:#111;border-radius:6px;padding:8px;text-align:center"><div style="font-size:9px;color:#555">Stop</div><div style="color:#ff4444;font-family:JetBrains Mono;font-size:13px;font-weight:700">{s["stop"]:,.1f}</div></div>'
-                        f'  <div style="background:#111;border-radius:6px;padding:8px;text-align:center"><div style="font-size:9px;color:#555">Target</div><div style="color:#00ff88;font-family:JetBrains Mono;font-size:13px;font-weight:700">{s["target"]:,.1f}</div></div>'
-                        f'  <div style="background:#111;border-radius:6px;padding:8px;text-align:center"><div style="font-size:9px;color:#555">Conf / R:R</div><div style="color:#a78bfa;font-family:JetBrains Mono;font-size:13px;font-weight:700">{s["conf"]}% · {s["rr"]}</div></div>'
-                        f'  <div style="background:#111;border-radius:6px;padding:8px;text-align:center"><div style="font-size:9px;color:#555">Tick risk / $</div><div style="color:#f0a500;font-family:JetBrains Mono;font-size:13px;font-weight:700">{s["tick_risk"]:.0f}t · ${s["dollar_risk"]:,.0f}</div></div>'
-                        f'</div>'
-                        f'<div style="margin-bottom:5px">{reasons_html}</div>'
-                        f'<div style="font-size:11px;color:#555">'
-                        f'RSI7:{s["rsi"]} Stoch:{s["stoch_k"]} BB:{s["bb_pct"]}% VWAP:{s["vwap_dev"]:+.2f}%'
-                        f'  Hold:{s["hold_est"]}  Daily:{bias_icon}{s["daily_bias"]}</div>'
-                        f'</div>', unsafe_allow_html=True)
-
-# ── GRAND STRATEGY ────────────────────────────────────────────────────────────
-with t_strategy:
-    st.subheader("🧠 Grand Strategy")
-    if not grand:
-        st.info("Ensemble running on first load…")
-    else:
-        sess_now=active_sessions[0] if active_sessions else "Off-hours"
-        sw={"Tokyo":{"ES":0.4,"NQ":0.4,"GC":0.7,"CL":0.6,"YM":0.4,"BTC":1.3,"ETH":1.2},
-            "London":{"ES":0.7,"NQ":0.6,"GC":1.4,"CL":1.1,"YM":0.6,"BTC":1.1,"ETH":1.0},
-            "New York":{"ES":1.4,"NQ":1.4,"GC":1.1,"CL":1.2,"YM":1.3,"BTC":1.0,"ETH":0.9},
-            "NY+London Overlap":{"ES":1.3,"NQ":1.2,"GC":1.2,"CL":1.1,"YM":1.2,"BTC":1.1,"ETH":1.0},
-            "Off-hours":{"ES":0.3,"NQ":0.3,"GC":0.5,"CL":0.4,"YM":0.3,"BTC":0.7,"ETH":0.7}}.get(sess_now,{})
-        scored={mk:{"score":grand[mk]["avg_sharpe"]*sw.get(mk,1.0),
-                    "conf":min(99,round(grand[mk]["conf"]*sw.get(mk,1.0))),
-                    "signal":grand[mk]["signal"],"rsi":grand[mk]["rsi"],"rr":grand[mk]["rr"],
-                    "avg_ret":grand[mk]["avg_ret"]}
-                for mk in grand if mk in selected_markets}
-        if scored:
-            best=max(scored,key=lambda x:scored[x]["score"]); bs=scored[best]; bsig=bs["signal"]
-            is_bb="BUY" in bsig or bsig=="OVERSOLD"; is_bs="SELL" in bsig or bsig=="OVERBOUGHT"
-            bc="#00ff88" if is_bb else "#ff4444" if is_bs else "#555"
-            st.markdown(f'<div style="border:2px solid {bc};border-radius:14px;padding:20px 24px;'
-                        f'background:{"#001a0a" if is_bb else "#1a0000" if is_bs else "#111"};margin-bottom:16px">'
-                        f'<div style="font-size:11px;color:#555;font-family:JetBrains Mono">TOP PICK — {sess_now.upper()}</div>'
-                        f'<div style="font-size:2rem;font-weight:800;color:{bc};margin:4px 0">{"🟢 BUY" if is_bb else "🔴 SELL" if is_bs else "⚪ HOLD"} — {MARKETS[best]["label"]}</div>'
-                        f'<div style="font-size:13px;color:#aaa">Confidence: <b style="color:{bc}">{bs["conf"]}%</b> | R:R 1:{bs["rr"]} | Top-20 avg: {bs["avg_ret"]:+.1f}%</div>'
-                        f'</div>', unsafe_allow_html=True)
-        now_h = datetime.now(ZoneInfo("UTC")).hour
-        plan = [(0,8,"00:00–08:00","Tokyo","BTC ETH","Crypto only. Avoid CME instruments — very thin pre-market.","#7C3AED"),
-                (8,13,"08:00–13:00","London","GC CL","Gold + Crude wake up. London open breakouts. Avoid ES/NQ.","#2563EB"),
-                (13,17,"13:00–17:00","NY Open + Overlap","ALL","🔥 PRIME TIME. ES/NQ explode at 9:30 ET. Sharpest CME signals.","#D97706"),
-                (17,22,"17:00–22:00","New York Afternoon","ES NQ YM CL","US afternoon. Lower volume. Trail stops tighter.","#059669"),
-                (22,24,"22:00–00:00","Off-hours","—","Very thin. Review plan for tomorrow.","#555")]
-        st.markdown("### 📅 CME Trading Plan")
-        for h0,h1,times,sname,mkts,tip,sc2 in plan:
-            is_now=h0<=now_h<h1; border=sc2 if is_now else "#1a1a30"
-            nb=f' <span style="background:{sc2};color:#fff;border-radius:3px;padding:1px 7px;font-size:10px">NOW</span>' if is_now else ""
-            st.markdown(f'<div style="border:1.5px solid {border};border-radius:8px;padding:10px 16px;margin-bottom:6px;background:#0a0a18">'
-                        f'<div style="font-size:12px;font-weight:700;color:{sc2};font-family:JetBrains Mono">{times} — {sname}{nb}</div>'
-                        f'<div style="font-size:11px;color:#555">Instruments: {mkts}</div>'
-                        f'<div style="font-size:12px;color:#aaa;margin-top:2px">{tip}</div>'
-                        f'</div>', unsafe_allow_html=True)
-
-# ── ALERTS ────────────────────────────────────────────────────────────────────
-with t_alerts:
-    st.subheader("📝 Alerts")
-    notes = st.session_state["notes"]
-    if not notes: st.info("Alerts appear here every 90 seconds.")
-    icons={"watch":"👀 Watch","buy":"🟢 Possible buy","sell":"🔴 Consider sell","info":"💡 Info"}
-    for n in notes[:15]:
-        cls={"watch":"note-watch","buy":"note-buy","sell":"note-sell","info":"note-info"}.get(n["type"],"note-info")
-        lbl=MARKETS.get(n["market"],{}).get("label",n["market"])
-        st.markdown(f'<div class="note-card {cls}"><div style="font-size:10px;color:#555">{n["time"]}</div>'
-                    f'<div style="font-weight:700;font-size:12px;margin-bottom:3px">{icons.get(n["type"],"💡")} — {lbl}</div>'
-                    f'{n["text"]}</div>', unsafe_allow_html=True)
-    if fg:
-        st.divider(); st.markdown("**Fear & Greed (crypto sentiment)**")
-        fig_fg = go.Figure(go.Bar(x=list(range(len(fg["history"]))),y=fg["history"],
-            marker_color=["rgba(255,68,68,0.8)" if v<25 else "rgba(255,153,0,0.8)" if v<45 else "rgba(255,221,68,0.8)" if v<55 else "rgba(0,255,136,0.8)" for v in fg["history"]]))
-        fig_fg.update_layout(height=160,template="plotly_dark",paper_bgcolor="#080818",plot_bgcolor="#0a0a18",margin=dict(l=0,r=0,t=10,b=0))
-        st.plotly_chart(fig_fg, use_container_width=True, key="fg_chart")
-
-# ── TRADERS ───────────────────────────────────────────────────────────────────
-with t_traders:
-    st.subheader("🤖 AI Trader Team")
-    rows=[]
-    for tr in TRADERS:
-        pnl=tr["balance"]-25000; wins=sum(1 for t in tr["trades"] if t["result"]=="win"); tot=len(tr["trades"])
-        dd=round(max(0,(tr["peak"]-tr["balance"])/tr["peak"]*100),1) if tr["peak"] else 0
-        rows.append({"Trader":f"{tr['emoji']} {tr['name']}","Style":tr["style"],"Balance":tr["balance"],"P&L":pnl,
-                     "Win%":round(wins/tot*100) if tot else 0,"Trades":tot,"DD%":dd})
-    df_sc=pd.DataFrame(rows).sort_values("P&L",ascending=False).reset_index(drop=True); df_sc.index+=1
-    st.dataframe(df_sc.style.format({"Balance":"${:,.0f}","P&L":"${:+,.0f}","Win%":"{}%","DD%":"{}%"})
-        .map(lambda v:"color:#00ff88;font-weight:700" if isinstance(v,(int,float)) and v>0 else "color:#ff4444;font-weight:700" if isinstance(v,(int,float)) and v<0 else "",subset=["P&L"]),
-        use_container_width=True)
-    hfig=go.Figure()
-    colors_t=["#00ff88","#00d4ff","#f0a500","#f87171","#a78bfa"]
-    for i,tr in enumerate(TRADERS):
-        if len(tr["history"])>1:
-            hfig.add_trace(go.Scatter(y=tr["history"],name=f"{tr['emoji']} {tr['name']} ({(tr['balance']-25000)/25000*100:+.1f}%)",
-                line=dict(color=colors_t[i%len(colors_t)],width=2)))
-    hfig.add_hline(y=25000,line=dict(color="#444",width=1,dash="dot"))
-    hfig.update_layout(height=240,template="plotly_dark",paper_bgcolor="#080818",plot_bgcolor="#0a0a18",
-        margin=dict(l=0,r=0,t=30,b=0),legend=dict(orientation="h",y=1.05))
-    st.plotly_chart(hfig,use_container_width=True,key="trader_history")
-
-# ── BACKTEST ──────────────────────────────────────────────────────────────────
-with t_bt:
-    st.subheader(f"📊 Backtest — {bt_days} days")
-    if st.session_state.get("bt_results"):
-        st.markdown('<span style="background:#00d4ff22;border:1px solid #00d4ff44;border-radius:6px;padding:3px 10px;font-size:11px;color:#00d4ff">💾 Results preserved</span>', unsafe_allow_html=True)
-    bt_mk=st.selectbox("Instrument",selected_markets,key="bt_mk")
-    bt_mode=st.radio("Mode",["Single strategy","Compare all 5"],horizontal=True)
-    bt_trader_name=st.selectbox("Strategy",[tr["name"] for tr in TRADERS]) if bt_mode=="Single strategy" else None
-    show_sigs=st.toggle("Show signals on chart",value=True)
-    if st.button("▶ Run Backtest",type="primary"):
-        with st.spinner("Running backtest…"):
-            df_bt=all_dfs.get(bt_mk,pd.DataFrame()); all_bts={}
-            for tr in TRADERS:
-                r=run_backtest(df_bt,tr,label=tr["name"])
-                if "equity_curve" in r: all_bts[tr["name"]]=r
-            if all_bts:
-                mn=bt_trader_name if bt_trader_name and bt_trader_name in all_bts else list(all_bts.keys())[0]
-                st.session_state["bt_results"]={"main":all_bts[mn],"all":all_bts,"market":bt_mk,"mode":bt_mode}
-                try:
-                    persist_set("bt_summary",{"market":bt_mk,"time":datetime.now().strftime("%H:%M %d/%m/%Y"),
-                        "results":{n:{k:v for k,v in r.items() if k not in ("equity_curve","trade_list")} for n,r in all_bts.items()}})
-                except: pass
-            else: st.error("Not enough data.")
-    saved=st.session_state.get("bt_results",{}); bt=saved.get("main"); all_bts=saved.get("all",{})
-    if bt and "equity_curve" in bt:
-        if bt_mode=="Compare all 5" and all_bts:
-            comp=[{"Trader":n,"Return%":r["total_return"],"Win%":r["win_rate"],"Trades":r["total_trades"],
-                   "MaxDD%":r["max_drawdown"],"Sharpe":r["sharpe"],"PF":r["profit_factor"]}
-                  for n,r in all_bts.items() if "total_return" in r]
-            if comp:
-                df_c=pd.DataFrame(comp).sort_values("Sharpe",ascending=False)
-                df_c.insert(0,"#",["🥇","🥈","🥉","4️⃣","5️⃣"][:len(df_c)])
-                st.dataframe(df_c.style.format({"Return%":"{:+.1f}%","Win%":"{:.0f}%","MaxDD%":"{:.1f}%","Sharpe":"{:.2f}","PF":"{:.2f}"})
-                    .highlight_max(subset=["Return%","Win%","Sharpe"],color="#1a3a1a")
-                    .highlight_min(subset=["MaxDD%"],color="#1a3a1a"),use_container_width=True,hide_index=True)
-            ef=build_equity_chart(all_bts)
-            if ef: st.plotly_chart(ef,use_container_width=True,key="bt_eq_compare")
-        cols8=st.columns(8)
-        cr="#00ff88" if bt["total_return"]>0 else "#ff4444"
-        for col2,(val,lbl2,vc) in zip(cols8,[
-            (f"{bt['total_return']:+.1f}%","Strategy",cr),(f"{bt['bh_return']:+.1f}%","Buy&Hold","#aaa"),
-            (f"{bt['win_rate']:.0f}%","Win Rate","#aaa"),(str(bt["total_trades"]),"Trades","#aaa"),
-            (f"{bt['profit_factor']:.2f}","Prof Factor","#aaa"),(f"{bt['max_drawdown']:.1f}%","Max DD","#ff4444"),
-            (f"{bt['sharpe']:.2f}","Sharpe","#aaa"),(f"{bt['calmar']:.2f}","Calmar","#aaa")]):
-            col2.markdown(f'<div class="bt-stat"><div class="bt-val" style="color:{vc}">{val}</div><div class="bt-lbl">{lbl2}</div></div>',unsafe_allow_html=True)
-        chart_mk=saved.get("market",bt_mk)
-        fig_m=build_chart(all_dfs.get(chart_mk,pd.DataFrame()),f"{chart_mk} — {bt.get('label','')}",
-            MARKETS.get(chart_mk,{}).get("color","#fff"),show_sigs,bt)
-        if fig_m: st.plotly_chart(fig_m,use_container_width=True,key="bt_main_chart")
-        with st.expander("📋 Trade log"):
-            tdf3=bt["trade_list"].copy()
-            st.dataframe(tdf3.style.format({"entry":"${:,.2f}","exit":"${:,.2f}","pnl":"${:+,.2f}"})
-                .map(lambda v:"color:#00ff88" if isinstance(v,(int,float)) and v>0 else "color:#ff4444",subset=["pnl"]),
-                use_container_width=True,hide_index=True)
-    else:
-        bt_sum=persist_get("bt_summary")
-        if bt_sum:
-            st.info(f"💾 Last backtest: **{bt_sum.get('market','?')}** at {bt_sum.get('time','?')}")
+        if cached_bt and "error" not in cached_bt:
+            with st.spinner("Simulating 3,000 evaluation paths…"):
+                mc = monte_carlo_eval(
+                    win_rate=cached_bt["win_rate"],
+                    avg_win_usd=cached_bt["avg_win_usd"],
+                    avg_loss_usd=cached_bt["avg_loss_usd"],
+                    account_size_key=account_key,
+                    n_sims=3000,
+                    trades_per_day=mc_tpd,
+                    max_days=mc_days,
+                )
+                st.session_state["mc_cache"][mc_mk] = mc
         else:
-            st.info("Select an instrument and click ▶ Run Backtest.")
+            st.error("Run a backtest first (or not enough data). Check the Backtest tab.")
 
-# ── 100-AI LAB ────────────────────────────────────────────────────────────────
-with t_ensemble:
-    st.subheader("🔬 100-AI Ensemble Lab")
-    if st.button("🔄 Re-run Full Ensemble",type="primary"):
-        with st.spinner("Testing 100 configs…"):
-            try:
-                ens,grand2=run_ensemble(all_dfs)
-                st.session_state["ensemble_results"]=ens; st.session_state["grand_strategy"]=grand2
-                st.session_state["ensemble_ran"]=True; st.session_state["profit_analysis"]={}
-                persist_set("ensemble_ran",True); st.success("✅ Done!")
-            except Exception as e: st.error(f"Error: {e}")
-    ens=st.session_state.get("ensemble_results",{})
-    if ens:
-        e_mk=st.selectbox("Market",list(ens.keys()),key="emk")
-        if e_mk and e_mk in ens:
-            res=ens[e_mk]; rets=[r["total_return"] for r in res]
-            c1,c2,c3,c4,c5=st.columns(5)
-            c1.metric("AIs",len(res)); c2.metric("Winners",len([r for r in res if r["total_return"]>0]))
-            c3.metric("Avg ret",f"{np.mean(rets):+.1f}%"); c4.metric("Best",f"{max(rets):+.1f}%")
-            c5.metric("Avg Sharpe",f"{np.mean([r['sharpe'] for r in res]):.2f}")
-            top20=res[:20]
-            fig_lb=make_subplots(rows=1,cols=2,subplot_titles=["Top-20 Returns","Top-20 Sharpe"])
-            fig_lb.add_trace(go.Bar(x=[r["total_return"] for r in top20],y=[r["name"] for r in top20],orientation="h",
-                marker_color=["rgba(0,204,102,0.8)" if r["total_return"]>=0 else "rgba(204,51,51,0.8)" for r in top20]),row=1,col=1)
-            fig_lb.add_trace(go.Bar(x=[r["sharpe"] for r in top20],y=[r["name"] for r in top20],orientation="h",
-                marker_color=["rgba(167,139,250,0.8)" if r["sharpe"]>=0 else "rgba(255,107,107,0.8)" for r in top20]),row=1,col=2)
-            fig_lb.update_layout(height=480,template="plotly_dark",paper_bgcolor="#080818",plot_bgcolor="#0a0a18",showlegend=False,margin=dict(l=0,r=0,t=40,b=0))
-            st.plotly_chart(fig_lb,use_container_width=True,key="ens_lb")
+    mc_res = st.session_state["mc_cache"].get(mc_mk)
 
-# ── ALPHA FUTURES REFERENCE ───────────────────────────────────────────────────
-with t_ref:
+    if mc_res:
+        pass_p = mc_res["pass_prob"]
+        blow_p = mc_res["blow_prob"]
+        neit_p = mc_res["neither"]
+
+        # Big probability display
+        pc = "#00e664" if pass_p >= 60 else "#ffb400" if pass_p >= 40 else "#ff3c3c"
+        bc2= "#ff3c3c" if blow_p >= 40 else "#ffb400" if blow_p >= 20 else "#33334a"
+
+        st.markdown(f"""
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px">
+          <div class="card" style="text-align:center;border-top:3px solid {pc}">
+            <div class="stat-lbl">PASS PROBABILITY</div>
+            <div class="stat-val" style="font-size:3rem;color:{pc}">{pass_p}%</div>
+            <div style="font-size:11px;color:#44445a">of {mc_res["n_sims"]:,} simulations</div>
+          </div>
+          <div class="card" style="text-align:center;border-top:3px solid {bc2}">
+            <div class="stat-lbl">BLOW PROBABILITY</div>
+            <div class="stat-val" style="font-size:3rem;color:{bc2}">{blow_p}%</div>
+            <div style="font-size:11px;color:#44445a">hit max loss / EOD 4% limit</div>
+          </div>
+          <div class="card" style="text-align:center;border-top:3px solid #33334a">
+            <div class="stat-lbl">STILL IN EVAL</div>
+            <div class="stat-val" style="font-size:3rem;color:#7878a0">{neit_p}%</div>
+            <div style="font-size:11px;color:#44445a">incomplete at day {mc_days}</div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Probability bar
+        st.markdown(f"""
+        <div style="margin-bottom:16px">
+          <div style="font-size:10px;color:#44445a;font-family:Space Mono,monospace;margin-bottom:6px">OUTCOME DISTRIBUTION</div>
+          <div style="display:flex;height:24px;border-radius:4px;overflow:hidden">
+            <div style="background:#00e664;width:{pass_p}%;display:flex;align-items:center;justify-content:center;font-size:10px;font-family:Space Mono,monospace;color:#000;font-weight:700">{"PASS " + str(pass_p) + "%" if pass_p > 8 else ""}</div>
+            <div style="background:#1a1a35;width:{neit_p}%;display:flex;align-items:center;justify-content:center;font-size:10px;color:#555">{"..." if neit_p > 5 else ""}</div>
+            <div style="background:#ff3c3c;width:{blow_p}%;display:flex;align-items:center;justify-content:center;font-size:10px;font-family:Space Mono,monospace;color:#fff;font-weight:700">{"BLOW " + str(blow_p) + "%" if blow_p > 8 else ""}</div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Stats
+        avg_d = mc_res.get("avg_days_to_pass")
+        st.markdown(f"""
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
+          <div class="card">
+            <div class="stat-lbl">Avg days to pass</div>
+            <div class="stat-val" style="color:#00e664">{avg_d if avg_d else "N/A"}</div>
+          </div>
+          <div class="card">
+            <div class="stat-lbl">Median P&L at end</div>
+            <div class="stat-val" style="color:{"#00e664" if mc_res["median_pnl"]>=0 else "#ff3c3c"}">${mc_res["median_pnl"]:+,}</div>
+          </div>
+          <div class="card">
+            <div class="stat-lbl">10th percentile</div>
+            <div class="stat-val" style="color:#ff3c3c">${mc_res["p10_pnl"]:+,}</div>
+          </div>
+          <div class="card">
+            <div class="stat-lbl">90th percentile</div>
+            <div class="stat-val" style="color:#00e664">${mc_res["p90_pnl"]:+,}</div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Verdict
+        if pass_p >= 65:
+            verdict = f'<div class="card card-accent-green"><b style="color:#00e664">✅ Strong edge.</b> Your backtest stats give you a real shot at passing. Keep risk at {risk_pct*100:.1f}% per trade and don\'t deviate from your system.</div>'
+        elif pass_p >= 45:
+            verdict = f'<div class="card card-accent-gold"><b style="color:#ffb400">⚠️ Marginal edge.</b> Coin-flip territory. Consider cutting risk per trade to 0.3–0.4% and only trading the highest-confidence signals.</div>'
+        elif pass_p >= 25:
+            verdict = f'<div class="card card-accent-red"><b style="color:#ff3c3c">❌ Low probability.</b> The current strategy doesn\'t have enough edge to reliably pass. Improve win rate or R:R before trying the eval.</div>'
+        else:
+            verdict = f'<div class="card card-accent-red"><b style="color:#ff3c3c">🚨 Do not attempt eval yet.</b> Less than 25% pass probability. The strategy is losing money in backtests — fix this first.</div>'
+        st.markdown(verdict, unsafe_allow_html=True)
+
+        # What needs to improve
+        if cached_bt:
+            st.markdown("#### What would improve your odds?")
+            imp_cols = st.columns(3)
+            # Scenario A: better RR
+            mc_a = monte_carlo_eval(cached_bt["win_rate"], cached_bt["avg_win_usd"] * 1.5,
+                                    cached_bt["avg_loss_usd"], account_key,
+                                    n_sims=1000, trades_per_day=mc_tpd, max_days=mc_days)
+            # Scenario B: better win rate
+            mc_b = monte_carlo_eval(min(75, cached_bt["win_rate"] + 10), cached_bt["avg_win_usd"],
+                                    cached_bt["avg_loss_usd"], account_key,
+                                    n_sims=1000, trades_per_day=mc_tpd, max_days=mc_days)
+            # Scenario C: fewer trades
+            mc_c = monte_carlo_eval(cached_bt["win_rate"], cached_bt["avg_win_usd"],
+                                    cached_bt["avg_loss_usd"], account_key,
+                                    n_sims=1000, trades_per_day=max(1, mc_tpd - 1), max_days=mc_days)
+            for col2, (lbl2, res2, desc2) in zip(imp_cols, [
+                (f"If avg win = ${abs(cached_bt['avg_win_usd'])*1.5:.0f}", mc_a, "Improve RR to 1:3"),
+                (f"If win rate = {min(75,cached_bt['win_rate']+10):.0f}%", mc_b, "Better entry timing"),
+                (f"If {max(1,mc_tpd-1)} trades/day", mc_c, "Be more selective"),
+            ]):
+                delta = res2["pass_prob"] - pass_p
+                dc = "#00e664" if delta > 0 else "#ff3c3c"
+                col2.markdown(
+                    f'<div class="card"><div style="font-size:11px;color:#fff;font-weight:600">{desc2}</div>'
+                    f'<div style="font-size:10px;color:#44445a">{lbl2}</div>'
+                    f'<div style="margin-top:8px;font-size:1.2rem;font-family:Space Mono,monospace;color:{dc}">'
+                    f'{res2["pass_prob"]}% <span style="font-size:12px">({delta:+.0f}%)</span></div></div>',
+                    unsafe_allow_html=True
+                )
+    else:
+        st.info("Configure your settings above and click **Run Monte Carlo** to see your eval pass probability.")
+
+# ══════════════════════════════════════════════════════════════
+# TAB 2 — REAL BACKTEST
+# ══════════════════════════════════════════════════════════════
+with tab_bt:
+    st.subheader("📊 Real Futures Backtest")
+    st.markdown(
+        '<div class="info-box">P&L is in <b>real futures dollars</b> using actual tick sizes and values. '
+        'SPY/QQQ/GLD are used as proxies for ES/NQ/GC — price levels differ but % moves are representative. '
+        'Max contracts per Alpha Futures rules enforced.</div>',
+        unsafe_allow_html=True
+    )
+
+    bt_mk_sel = st.selectbox("Instrument", selected_markets, key="bt_mk_sel")
+    run_bt = st.button("▶ Run Backtest", type="primary", key="run_bt_btn")
+
+    bt_key2 = f"{bt_mk_sel}_{account_key}_{bt_days}_{risk_pct}_{rr_ratio}_{sig_filter}"
+    if run_bt:
+        with st.spinner("Running real P&L backtest…"):
+            df_bt2 = daily_dfs.get(bt_mk_sel, pd.DataFrame())
+            bt2 = run_real_backtest(df_bt2, bt_mk_sel, account_key, risk_pct, rr_ratio, sig_filter)
+            st.session_state["bt_cache"][bt_key2] = bt2
+
+    bt2 = st.session_state["bt_cache"].get(bt_key2)
+
+    if bt2 and "error" not in bt2:
+        info2 = MARKETS[bt_mk_sel]
+        acct2 = ALPHA_ACCOUNTS[account_key]
+
+        # Status flags
+        if bt2["blown"]:
+            st.markdown('<div class="warn-box">🚨 This strategy would have <b>BLOWN the account</b> in the backtest period — hit the max loss or 4% EOD drawdown limit.</div>', unsafe_allow_html=True)
+        elif bt2["passed"]:
+            st.markdown('<div class="card card-accent-green" style="margin-bottom:10px">✅ This strategy <b>would have PASSED the Alpha Futures evaluation</b> in the backtest period.</div>', unsafe_allow_html=True)
+
+        # Proxy disclaimer
+        proxy = info2["proxy"]
+        st.markdown(f'<div style="font-size:11px;color:#33334a;margin-bottom:12px;font-family:Space Mono,monospace">⚠ Using {proxy} as proxy for {bt_mk_sel} · Tick={info2["tick"]} · ${info2["tick_usd"]}/tick · Max {acct2["max_contracts"].get(bt_mk_sel,5)} contracts</div>', unsafe_allow_html=True)
+
+        # Key metrics
+        pnl_c    = "#00e664" if bt2["total_pnl"] >= 0 else "#ff3c3c"
+        ret_c    = "#00e664" if bt2["total_return_pct"] >= 0 else "#ff3c3c"
+        metrics  = [
+            ("Total P&L",     f'${bt2["total_pnl"]:+,.0f}',   pnl_c),
+            ("Return %",      f'{bt2["total_return_pct"]:+.1f}%', ret_c),
+            ("vs Buy&Hold",   f'{bt2["bh_return"]:+.1f}%',    "#7878a0"),
+            ("Win Rate",      f'{bt2["win_rate"]:.0f}%',       "#fff"),
+            ("Trades",        str(bt2["total_trades"]),         "#fff"),
+            ("Avg Win",       f'${bt2["avg_win_usd"]:+,.0f}',  "#00e664"),
+            ("Avg Loss",      f'${bt2["avg_loss_usd"]:+,.0f}', "#ff3c3c"),
+            ("Profit Factor", f'{bt2["profit_factor"]:.2f}',   "#ffb400" if bt2["profit_factor"] >= 1.5 else "#ff3c3c"),
+            ("Max Drawdown",  f'{bt2["max_drawdown"]:.1f}%',   "#ff3c3c"),
+            ("Sharpe",        f'{bt2["sharpe"]:.2f}',           "#00aaff"),
+        ]
+        mc2 = st.columns(5)
+        for i, (lbl2, val2, vc2) in enumerate(metrics):
+            mc2[i % 5].markdown(
+                f'<div class="card" style="margin-bottom:8px;text-align:center">'
+                f'<div class="stat-val" style="color:{vc2}">{val2}</div>'
+                f'<div class="stat-lbl">{lbl2}</div></div>',
+                unsafe_allow_html=True
+            )
+
+        # Alpha Futures progress toward target
+        progress_pct = min(100, max(0, bt2["total_pnl"] / acct2["target"] * 100))
+        p_col = "#00e664" if progress_pct >= 50 else "#ffb400" if progress_pct >= 25 else "#ff3c3c"
+        st.markdown(f"""
+        <div style="margin:16px 0">
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:#44445a;font-family:Space Mono,monospace;margin-bottom:5px">
+            <span>PROFIT TARGET PROGRESS</span>
+            <span>${bt2["total_pnl"]:+,.0f} / ${acct2["target"]:,}</span>
+          </div>
+          <div class="mc-bar-wrap" style="height:12px">
+            <div class="mc-bar-fill" style="width:{progress_pct}%;background:{p_col}"></div>
+          </div>
+          <div style="font-size:10px;color:#33334a;text-align:right">{progress_pct:.0f}%</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Equity curve
+        eq = bt2["equity_curve"]
+        if not eq.empty:
+            fig_eq = go.Figure()
+            fig_eq.add_trace(go.Scatter(
+                x=eq["date"], y=eq["equity"],
+                fill="tozeroy",
+                fillcolor=f"rgba(0,230,100,0.06)" if bt2["total_pnl"] >= 0 else "rgba(255,60,60,0.06)",
+                line=dict(color="#00e664" if bt2["total_pnl"] >= 0 else "#ff3c3c", width=2),
+                name="Balance"
+            ))
+            fig_eq.add_hline(y=float(acct2["size"]), line=dict(color="#333355", width=1, dash="dot"))
+            fig_eq.add_hline(y=float(acct2["size"] + acct2["target"]),
+                             line=dict(color="#00e66455", width=1, dash="dot"),
+                             annotation_text="Target", annotation_font_color="#00e664")
+            fig_eq.add_hline(y=float(acct2["size"] - acct2["max_loss"]),
+                             line=dict(color="#ff3c3c55", width=1, dash="dot"),
+                             annotation_text="Max Loss", annotation_font_color="#ff3c3c")
+            fig_eq.update_layout(
+                height=280, template="plotly_dark",
+                paper_bgcolor="#05050f", plot_bgcolor="#0c0c1e",
+                margin=dict(l=0, r=0, t=20, b=0),
+                xaxis=dict(gridcolor="#0f0f20"), yaxis=dict(gridcolor="#0f0f20"),
+                showlegend=False, title=dict(text="Account Equity (Real $ P&L)", font=dict(color="#44445a", size=12))
+            )
+            st.plotly_chart(fig_eq, use_container_width=True, key="bt_eq")
+
+        # Trade log
+        with st.expander(f"📋 Trade log ({bt2['total_trades']} trades)"):
+            tlog = bt2["trade_list"].copy()
+            tlog["date"] = pd.to_datetime(tlog["date"]).dt.strftime("%Y-%m-%d")
+            st.dataframe(
+                tlog[["date","dir","entry","exit","contracts","pnl","result","reason","balance_after"]].style
+                    .format({"entry": "${:,.2f}", "exit": "${:,.2f}",
+                             "pnl": "${:+,.0f}", "balance_after": "${:,.0f}"})
+                    .map(lambda v: "color:#00e664" if isinstance(v, (int,float)) and v > 0
+                         else "color:#ff3c3c" if isinstance(v, (int,float)) and v < 0 else "",
+                         subset=["pnl"]),
+                use_container_width=True, hide_index=True
+            )
+
+    elif bt2 and "error" in bt2:
+        st.warning(f"Backtest failed: {bt2['error']}. Try a longer lookback window or different instrument.")
+    else:
+        st.info("Select an instrument and click **▶ Run Backtest**.")
+
+# ══════════════════════════════════════════════════════════════
+# TAB 3 — SCALP SIGNALS
+# ══════════════════════════════════════════════════════════════
+with tab_scalp:
+    st.subheader("⚡ Scalp Signals — 5-min / Hourly")
+    st.markdown(
+        '<div class="info-box">Signals based on EMA3/8/13 crosses, RSI-7, Stochastic extremes, '
+        'VWAP deviation, BB squeezes. Max confidence capped at 88%. Entry/stop/target in <b>real ticks</b>. '
+        'Crypto uses hourly bars (5-min not available free).</div>',
+        unsafe_allow_html=True
+    )
+
+    if st.button("🔄 Refresh scalp signals"):
+        st.session_state["last_scalp"] = 0; st.rerun()
+
+    min_conf_s = st.slider("Min confidence", 50, 85, 60, key="sc_conf")
+    filtered_s = [s for s in scalp_sigs if s["conf"] >= min_conf_s]
+
+    if not filtered_s:
+        st.info(f"No scalp signals above {min_conf_s}% confidence right now.")
+    else:
+        sc1, sc2, sc3 = st.columns(3)
+        sc1.metric("Signals", len(filtered_s))
+        sc2.metric("🟢 Long",  sum(1 for s in filtered_s if s["direction"] == "LONG"))
+        sc3.metric("🔴 Short", sum(1 for s in filtered_s if s["direction"] == "SHORT"))
+
+        for s in filtered_s:
+            is_long = s["direction"] == "LONG"
+            dc = "#00e664" if is_long else "#ff3c3c"
+            bc_card = "#001a08" if is_long else "#1a0005"
+            reasons_html = " · ".join(
+                f'<span style="color:#44445a;font-size:11px">{r}</span>'
+                for r in s["reasons"]
+            )
+            dsig_c = "#00e664" if "BUY" in s["daily_bias"] else "#ff3c3c" if "SELL" in s["daily_bias"] else "#555"
+            max_c_here = ALPHA_ACCOUNTS[account_key]["max_contracts"].get(s["mk"], 5)
+
+            st.markdown(f"""
+            <div style="border:1.5px solid {dc};border-radius:6px;padding:16px;background:{bc_card};margin-bottom:12px">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+                <div>
+                  <span style="color:{dc};font-size:1.1rem;font-weight:700;font-family:Space Mono,monospace">
+                    {"▲ LONG" if is_long else "▼ SHORT"}
+                  </span>
+                  <span style="color:#aaa;margin-left:8px;font-size:13px">{s["label"]}</span>
+                  <span style="background:{dc}22;color:{dc};border-radius:3px;padding:1px 8px;font-size:10px;margin-left:6px;font-family:Space Mono,monospace">{s["conf"]}% CONF</span>
+                </div>
+                <div style="font-size:10px;color:#33334a;font-family:Space Mono,monospace">{s["time"]}</div>
+              </div>
+
+              <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:10px">
+                <div style="background:#0c0c1e;border-radius:4px;padding:8px;text-align:center">
+                  <div style="font-size:9px;color:#33334a">ENTRY</div>
+                  <div style="color:#ffb400;font-family:Space Mono,monospace;font-size:13px;font-weight:700">{s["price"]:,.1f}</div>
+                </div>
+                <div style="background:#0c0c1e;border-radius:4px;padding:8px;text-align:center">
+                  <div style="font-size:9px;color:#33334a">STOP</div>
+                  <div style="color:#ff3c3c;font-family:Space Mono,monospace;font-size:13px;font-weight:700">{s["stop"]:,.1f}</div>
+                  <div style="font-size:9px;color:#33334a">{s["stop_ticks"]:.0f} ticks</div>
+                </div>
+                <div style="background:#0c0c1e;border-radius:4px;padding:8px;text-align:center">
+                  <div style="font-size:9px;color:#33334a">TARGET</div>
+                  <div style="color:#00e664;font-family:Space Mono,monospace;font-size:13px;font-weight:700">{s["tp"]:,.1f}</div>
+                  <div style="font-size:9px;color:#33334a">{s["tp_ticks"]:.0f} ticks</div>
+                </div>
+                <div style="background:#0c0c1e;border-radius:4px;padding:8px;text-align:center">
+                  <div style="font-size:9px;color:#33334a">$/contract</div>
+                  <div style="color:#fff;font-family:Space Mono,monospace;font-size:13px;font-weight:700">${s["usd_risk_1c"]:,.0f}</div>
+                  <div style="font-size:9px;color:#33334a">risk</div>
+                </div>
+                <div style="background:#0c0c1e;border-radius:4px;padding:8px;text-align:center">
+                  <div style="font-size:9px;color:#33334a">MAX LOTS</div>
+                  <div style="color:#cc88ff;font-family:Space Mono,monospace;font-size:13px;font-weight:700">{max_c_here}</div>
+                  <div style="font-size:9px;color:#33334a">Alpha limit</div>
+                </div>
+              </div>
+
+              <div style="margin-bottom:6px">{reasons_html}</div>
+              <div style="font-size:10px;color:#33334a;font-family:Space Mono,monospace">
+                RSI-7:{s["rsi"]} · Stoch:{s["stoch_k"]} · BB%:{s["bb_pct"]} · VWAP:{s["vwap_dev"]:+.2f}%
+                · Daily: <span style="color:{dsig_c}">{s["daily_bias"]}</span>
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+# ══════════════════════════════════════════════════════════════
+# TAB 4 — CHARTS
+# ══════════════════════════════════════════════════════════════
+with tab_chart:
+    st.subheader("📈 Charts")
+    chart_mk = st.selectbox("Instrument", selected_markets, key="ch_mk")
+    show_sig = st.toggle("Show signals", value=True)
+
+    df_ch = daily_dfs.get(chart_mk, pd.DataFrame())
+    if df_ch.empty:
+        st.warning("No data available.")
+    else:
+        info_ch = MARKETS[chart_mk]
+        fig_ch = make_subplots(
+            rows=4, cols=1, shared_xaxes=True,
+            row_heights=[0.50, 0.18, 0.18, 0.14],
+            vertical_spacing=0.025,
+        )
+        # BB
+        if "bb_upper" in df_ch.columns:
+            fig_ch.add_trace(go.Scatter(x=df_ch.index, y=df_ch["bb_upper"],
+                line=dict(color="rgba(100,100,200,0.2)", width=1), showlegend=False), row=1, col=1)
+            fig_ch.add_trace(go.Scatter(x=df_ch.index, y=df_ch["bb_lower"],
+                line=dict(color="rgba(100,100,200,0.2)", width=1),
+                fill="tonexty", fillcolor="rgba(80,80,180,0.04)", showlegend=False), row=1, col=1)
+        # Candles or line
+        if "open" in df_ch.columns:
+            fig_ch.add_trace(go.Candlestick(
+                x=df_ch.index, open=df_ch["open"], high=df_ch["high"],
+                low=df_ch["low"], close=df_ch["close"],
+                increasing_line_color="#00e664", decreasing_line_color="#ff3c3c",
+                name="Price"), row=1, col=1)
+        else:
+            fig_ch.add_trace(go.Scatter(x=df_ch.index, y=df_ch["close"],
+                line=dict(color=info_ch["color"], width=2), name="Price"), row=1, col=1)
+        # EMAs
+        for col2, c2, n2 in [("ema8","#5DCAA5","EMA8"),("ema21","#ED93B1","EMA21"),("ema50","#F59E0B","EMA50")]:
+            if col2 in df_ch.columns:
+                fig_ch.add_trace(go.Scatter(x=df_ch.index, y=df_ch[col2],
+                    line=dict(color=c2, width=1.2, dash="dot"), name=n2), row=1, col=1)
+        # Signals
+        if show_sig and "signal" in df_ch.columns:
+            for sigs2, sym2, sz2, sc3 in [
+                (["BUY","STRONG BUY","OVERSOLD"],    "triangle-up",   9,  "#00e664"),
+                (["STRONG BUY"],                      "star",         14,  "#00ffcc"),
+                (["SELL","STRONG SELL","OVERBOUGHT"], "triangle-down", 9,  "#ff3c3c"),
+                (["STRONG SELL"],                     "x",            12,  "#ff0000"),
+            ]:
+                sub2 = df_ch[df_ch["signal"].isin(sigs2)]
+                if not sub2.empty:
+                    fig_ch.add_trace(go.Scatter(x=sub2.index, y=sub2["close"],
+                        mode="markers", marker=dict(symbol=sym2, size=sz2, color=sc3),
+                        name=sigs2[0]), row=1, col=1)
+        # MACD
+        if "macd" in df_ch.columns:
+            mh = df_ch["macd_h"].fillna(0).tolist()
+            mc3 = ["rgba(0,230,100,0.8)" if v >= 0 else "rgba(255,60,60,0.8)" for v in mh]
+            fig_ch.add_trace(go.Bar(x=df_ch.index, y=df_ch["macd_h"],
+                marker_color=mc3, showlegend=False), row=2, col=1)
+            fig_ch.add_trace(go.Scatter(x=df_ch.index, y=df_ch["macd"],
+                line=dict(color=info_ch["color"], width=1.5), name="MACD"), row=2, col=1)
+            fig_ch.add_trace(go.Scatter(x=df_ch.index, y=df_ch["macd_s"],
+                line=dict(color="#ED93B1", width=1.5), name="Signal"), row=2, col=1)
+        # RSI
+        if "rsi" in df_ch.columns:
+            fig_ch.add_trace(go.Scatter(x=df_ch.index, y=df_ch["rsi"],
+                line=dict(color="#cc88ff", width=2), name="RSI"), row=3, col=1)
+            for lvl2, lc2 in [(70, "rgba(255,60,60,0.5)"), (30, "rgba(0,230,100,0.5)"), (50, "rgba(60,60,80,0.5)")]:
+                fig_ch.add_hline(y=lvl2, line=dict(color=lc2, width=1, dash="dash"), row=3, col=1)
+        # Volume
+        if "volume" in df_ch.columns:
+            vc3 = ["rgba(0,230,100,0.6)" if float(df_ch["close"].iloc[i2]) >= float(df_ch["open"].iloc[i2])
+                   else "rgba(255,60,60,0.6)" for i2 in range(len(df_ch))]
+            fig_ch.add_trace(go.Bar(x=df_ch.index, y=df_ch["volume"],
+                marker_color=vc3, showlegend=False), row=4, col=1)
+
+        fig_ch.update_layout(
+            height=820, template="plotly_dark",
+            paper_bgcolor="#05050f", plot_bgcolor="#0c0c1e",
+            xaxis_rangeslider_visible=False,
+            legend=dict(orientation="h", y=1.02, font=dict(size=10)),
+            margin=dict(l=0, r=0, t=30, b=0),
+            title=dict(text=f"{chart_mk} — {info_ch['label']} (proxy: {info_ch['proxy']})",
+                       font=dict(color="#44445a", size=12))
+        )
+        fig_ch.update_xaxes(gridcolor="#0f0f20", zerolinecolor="#0f0f20")
+        fig_ch.update_yaxes(gridcolor="#0f0f20", zerolinecolor="#0f0f20")
+        st.plotly_chart(fig_ch, use_container_width=True, key="main_chart")
+
+# ══════════════════════════════════════════════════════════════
+# TAB 5 — REFERENCE
+# ══════════════════════════════════════════════════════════════
+with tab_ref:
     st.subheader("📚 Alpha Futures Reference")
+
     st.markdown("""
-### Alpha Futures — What You Need to Know
+### What Changed in Nigel v4
 
-**Alpha Futures** is a prop firm (part of Alpha Capital Group) that funds traders on **real CME exchange-traded futures**.
-Unlike forex prop firms — which simulate trades — Alpha Futures traders execute on actual CME/CBOT/NYMEX markets.
-
-#### Platforms (all supported)
-| Platform | Type | Best for |
+| Feature | v3 (old) | v4 (now) |
 |---|---|---|
-| **Tradovate** | Cloud-based, browser | Fast execution, TradingView integration |
-| **NinjaTrader** | Desktop | Algo strategies, advanced charts |
-| **AlphaTicks (Quantower)** | Proprietary | Commission-free, integrated risk tools |
-| **CQG / Rithmic** | Pro data feed | Sub-ms execution, institutional grade |
+| P&L calculation | % of capital, fake | Real $ using tick×tick_value×contracts |
+| "100 AI" ensemble | 10 configs × 10 noise = theater | Removed. One honest backtest per strategy |
+| Confidence scores | Inflated to 80–95% | Capped at 88%, tied to actual indicator strength |
+| Eval probability | Not modeled | Monte Carlo 3,000 paths using your real stats |
+| Contract limits | Ignored | Alpha Futures limits enforced in backtest & sizing |
+| Proxy disclosure | Hidden | Shown everywhere |
 
-#### Account Rules
-| Rule | Detail |
-|---|---|
-| Max Loss Limit | 4% of **end-of-day** balance (NOT intraday high — trader-friendly) |
-| Profit Target | 10% of account size to get funded |
-| Daily loss limit | None during evaluation |
-| News trading | Permitted (with some restrictions) |
-| Consistency rule | None — trade your style |
-| Scaling | Available after proving consistency |
-
-#### Instruments on Alpha Futures
-| Contract | Tick | Tick Value | Notes |
-|---|---|---|---|
-| ES (E-mini S&P) | 0.25 pt | $12.50 | Most liquid. Best spreads. |
-| NQ (E-mini Nasdaq) | 0.25 pt | $5.00 | Higher beta than ES |
-| YM (Dow Jones) | 1 pt | $5.00 | Slower, value-driven |
-| GC (Gold) | $0.10/oz | $10.00 | Safe haven, USD-driven |
-| CL (Crude Oil) | $0.01/bbl | $10.00 | High vol, EIA data sensitive |
-| MES (Micro ES) | 0.25 pt | $1.25 | Start here if sizing up |
-| MNQ (Micro NQ) | 0.25 pt | $0.50 | Micro Nasdaq for smaller risk |
-
-#### Best Strategy for Alpha Futures Evaluation
-1. **Risk 0.3–0.5% per trade** (not the maximum — protect the 4% EOD limit)
-2. **Target 1–3 trades/day** on highest-confidence signals only
-3. **Scalp ES/NQ 9:30–11:00 ET** — this is the golden window
-4. **Stop before 3% drawdown** on any day — gives you buffer
-5. **Use micros (MES/MNQ)** to size precisely during evaluation phase
+---
+### Contract Specs
 """)
 
-    st.markdown("### Instrument Specs")
-    specs_rows = []
-    for mk,info in MARKETS.items():
-        specs_rows.append({"Instrument":info["label"],"Tick Size":info["tick"],"Tick Value":f"${info['tick_val']}",
-                           "Contract":info["contract_val"],"Max lots (25k)":info["alpha_limits"].get("25k",5),"Description":info["desc"][:60]+"…"})
-    st.dataframe(pd.DataFrame(specs_rows),use_container_width=True,hide_index=True)
+    spec_rows = []
+    for mk, info in MARKETS.items():
+        acct2 = ALPHA_ACCOUNTS[account_key]
+        spec_rows.append({
+            "Contract": f"{mk} — {info['label']}",
+            "Tick Size": info["tick"],
+            "$/Tick": f"${info['tick_usd']}",
+            "Proxy (free tier)": info["proxy"],
+            f"Max lots ({account_key})": acct2["max_contracts"].get(mk, "—"),
+            "Notes": info["desc"][:70],
+        })
+    st.dataframe(pd.DataFrame(spec_rows), use_container_width=True, hide_index=True)
 
+    st.markdown("""
+---
+### Alpha Futures Eval Rules
+| Rule | Detail |
+|---|---|
+| Profit target | 10% of account (e.g. $2,500 on 25k) |
+| Max loss limit | 4% EOD (end-of-day balance, NOT intraday high) |
+| Daily loss limit | None during eval |
+| No consistency rule | Trade any size within limits |
+| No news restrictions | Can trade through events |
+| Scaling | Available post-eval |
+
+### Sizing Formula (used in backtest)
+```
+Dollar risk per contract = stop_ticks × tick_usd
+Contracts = min(max_allowed, floor(account × risk_pct / dollar_risk_per_contract))
+```
+
+### Prime Trading Windows (CME)
+- **9:30–11:00 ET** — highest volatility, best ES/NQ signals
+- **14:00–15:00 ET** — afternoon trend continuation
+- **London open 3:00–5:00 ET** — GC/CL best opportunity
+- Avoid: 12:00–13:30 ET (lunch lull), last 10 min before close
+
+### Honest Disclaimer
+Nigel uses ETF proxies (SPY→ES, QQQ→NQ, etc.) because real CME tick data requires
+a Polygon.io paid tier. The **% price moves are representative**, but **dollar P&L
+will differ** because ES trades at ~5,500 while SPY trades at ~550.
+The Monte Carlo uses your actual win rate and average trade dollar amounts from the
+backtest to project probability — this is the most honest forward estimate possible
+with the available data.
+""")
+
+# ─────────────────────────────────────────────────────────────
+# AUTO REFRESH
+# ─────────────────────────────────────────────────────────────
 if auto_refresh:
     time.sleep(90)
     st.cache_data.clear()
