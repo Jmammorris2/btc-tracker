@@ -913,11 +913,12 @@ st.divider()
 # ─────────────────────────────────────────────────────────────
 # TABS
 # ─────────────────────────────────────────────────────────────
-tab_mc, tab_bt, tab_scalp, tab_chart, tab_ref = st.tabs([
+tab_mc, tab_bt, tab_scalp, tab_chart, tab_ai, tab_ref = st.tabs([
     "🎯 Eval Probability",
     "📊 Real Backtest",
     "⚡ Scalp Signals",
     "📈 Charts",
+    "🤖 Ask Nigel AI",
     "📚 Reference",
 ])
 
@@ -1443,6 +1444,172 @@ The Monte Carlo uses your actual win rate and average trade dollar amounts from 
 backtest to project probability — this is the most honest forward estimate possible
 with the available data.
 """)
+
+# ══════════════════════════════════════════════════════════════
+# TAB — ASK NIGEL AI (real Claude API calls)
+# ══════════════════════════════════════════════════════════════
+def call_claude(prompt, system, max_tokens=900):
+    """Call Claude claude-sonnet-4-20250514 via Anthropic API. No API key needed in artifact context."""
+    try:
+        r = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={"Content-Type": "application/json"},
+            json={
+                "model": "claude-sonnet-4-20250514",
+                "max_tokens": max_tokens,
+                "system": system,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+            timeout=30,
+        )
+        data = r.json()
+        if "content" in data:
+            return "".join(b.get("text", "") for b in data["content"] if b.get("type") == "text")
+        return f"API error: {data.get('error', {}).get('message', str(data))}"
+    except Exception as e:
+        return f"Request failed: {e}"
+
+def build_market_context(live_signals, scalp_sigs, all_bt, mc_results, account_key, selected_markets):
+    """Build a structured data snapshot to feed Claude."""
+    acct = ALPHA_ACCOUNTS[account_key]
+    lines = [
+        f"ACCOUNT: ${acct['size']:,} | Target: ${acct['target']:,} | Max loss: ${acct['max_loss']:,} | EOD DD limit: 4%",
+        f"SESSION: {datetime.now(ZoneInfo('UTC')).strftime('%H:%M UTC')} | CME live: {cme_live}",
+        "",
+        "LIVE SIGNALS:",
+    ]
+    for mk in selected_markets:
+        sig = live_signals.get(mk, {})
+        info = MARKETS[mk]
+        lines.append(
+            f"  {mk} ({info['label']}): {sig.get('signal','HOLD')} | "
+            f"Conf:{sig.get('conf',0)}% | RSI:{sig.get('rsi',50)} | "
+            f"Price:{sig.get('price',0):,.1f} | ATR:{sig.get('atr_pct',0):.2f}%/day | "
+            f"Change:{sig.get('chg',0):+.2f}%"
+        )
+
+    if scalp_sigs:
+        lines += ["", "ACTIVE SCALP SIGNALS:"]
+        for s in scalp_sigs[:4]:
+            lines.append(
+                f"  {s['mk']} {s['direction']} @{s['price']:,.1f} | "
+                f"Stop:{s['stop']:,.1f} ({s['stop_ticks']} ticks) | "
+                f"Target:{s['tp']:,.1f} | Conf:{s['conf']}% | "
+                f"Reasons: {', '.join(s['reasons'][:2])}"
+            )
+
+    if all_bt:
+        lines += ["", "BACKTEST RESULTS (real $ P&L):"]
+        for key, bt in all_bt.items():
+            if "error" not in bt:
+                lines.append(
+                    f"  {bt['mk']} | Return:{bt['total_return_pct']:+.1f}% | "
+                    f"Win rate:{bt['win_rate']:.0f}% | Avg win:${bt['avg_win_usd']:+,.0f} | "
+                    f"Avg loss:${bt['avg_loss_usd']:+,.0f} | PF:{bt['profit_factor']:.2f} | "
+                    f"MaxDD:{bt['max_drawdown']:.1f}% | Sharpe:{bt['sharpe']:.2f} | "
+                    f"Trades:{bt['total_trades']} | Blown:{bt['blown']} | Passed:{bt['passed']}"
+                )
+
+    if mc_results:
+        lines += ["", "MONTE CARLO EVAL SIMULATIONS (3000 paths):"]
+        for mk, mc in mc_results.items():
+            lines.append(
+                f"  {mk}: Pass prob:{mc['pass_prob']}% | Blow prob:{mc['blow_prob']}% | "
+                f"Median P&L:${mc['median_pnl']:+,} | "
+                f"Avg days to pass:{mc.get('avg_days_to_pass','N/A')}"
+            )
+
+    return "\n".join(lines)
+
+NIGEL_SYSTEM = """You are Nigel, a sharp, direct futures trading intelligence built for Alpha Futures prop traders.
+You have access to real backtest results, live market signals, and Monte Carlo evaluation probability data.
+You speak like a senior prop desk trader — concise, honest, no fluff. You use numbers. You don't hedge everything.
+If the data says the strategy is bad, you say so. If there's a good trade, you call it out specifically.
+Format your responses with clear sections. Use $ amounts and % figures from the data provided.
+Never make up numbers — only reference what's in the data snapshot given to you.
+Keep responses under 400 words unless asked to elaborate."""
+
+with tab_ai:
+    st.subheader("🤖 Ask Nigel AI")
+    st.markdown(
+        '<div class="info-box">Real Claude API calls. Nigel reads your live signals, backtest results, '
+        'and Monte Carlo data and gives you an actual trading brief — not canned text.</div>',
+        unsafe_allow_html=True
+    )
+
+    # Gather all cached backtest results
+    all_bt_results = st.session_state.get("bt_cache", {})
+    mc_results_all = st.session_state.get("mc_cache", {})
+
+    # Quick-fire buttons for common questions
+    st.markdown("**Quick analysis:**")
+    qcols = st.columns(4)
+    quick_prompt = None
+    if qcols[0].button("📊 Full market brief"):
+        quick_prompt = "Give me a full market brief right now. Which instrument has the best setup? What should I trade, what should I avoid, and why? Be specific with prices and signal levels."
+    if qcols[1].button("🎯 Eval strategy"):
+        quick_prompt = "Based on my backtest and Monte Carlo results, what's the optimal strategy for passing the Alpha Futures evaluation? What risk per trade, how many trades per day, and which instrument?"
+    if qcols[2].button("⚡ Best scalp now"):
+        quick_prompt = "Looking at the active scalp signals, which one is the strongest setup right now? Walk me through the entry, stop, target and why this one over the others."
+    if qcols[3].button("⚠️ Risk check"):
+        quick_prompt = "Do a risk check on my current setup. Am I likely to blow the account before hitting the profit target? What's the biggest risk in my current approach?"
+
+    st.divider()
+
+    # Custom question
+    user_q = st.text_area(
+        "Or ask anything:",
+        placeholder="e.g. Should I trade NQ or ES right now? / What's my biggest weakness based on the backtest? / Is this a good time to scalp crude oil?",
+        height=90,
+        key="ai_question"
+    )
+    ask_btn = st.button("Ask Nigel →", type="primary")
+
+    final_prompt = quick_prompt or (user_q if ask_btn and user_q.strip() else None)
+
+    if final_prompt:
+        context = build_market_context(
+            live_signals, scalp_sigs, all_bt_results,
+            mc_results_all, account_key, selected_markets
+        )
+        full_prompt = f"MARKET DATA SNAPSHOT:\n{context}\n\nTRADER QUESTION: {final_prompt}"
+
+        with st.spinner("Nigel is thinking…"):
+            response = call_claude(full_prompt, NIGEL_SYSTEM, max_tokens=900)
+
+        st.markdown(
+            f'<div style="background:#0c0c1e;border:1px solid #1a1a35;border-left:3px solid #ff4d00;'
+            f'border-radius:6px;padding:20px 24px;margin-top:12px;font-size:14px;line-height:1.75;color:#ccc">'
+            f'<div style="font-size:10px;color:#33334a;font-family:Space Mono,monospace;margin-bottom:10px">'
+            f'NIGEL · {datetime.now().strftime("%H:%M")}</div>'
+            f'{response.replace(chr(10), "<br>")}'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+
+    # Chat history for follow-ups
+    if "ai_chat" not in st.session_state:
+        st.session_state["ai_chat"] = []
+
+    if final_prompt and "response" in dir():
+        st.session_state["ai_chat"].append({"q": final_prompt, "a": response})
+
+    if st.session_state["ai_chat"]:
+        with st.expander(f"📜 Chat history ({len(st.session_state['ai_chat'])} questions)"):
+            for i, turn in enumerate(reversed(st.session_state["ai_chat"][-10:])):
+                st.markdown(f'<div style="color:#555;font-size:11px;margin-top:10px">Q: {turn["q"]}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="color:#aaa;font-size:13px;padding:8px 0;border-bottom:1px solid #111128">{turn["a"][:300]}{"…" if len(turn["a"])>300 else ""}</div>', unsafe_allow_html=True)
+        if st.button("🗑 Clear chat history"):
+            st.session_state["ai_chat"] = []
+            st.rerun()
+
+    # Show what data Nigel can see
+    with st.expander("🔍 What data Nigel can see right now"):
+        ctx_preview = build_market_context(
+            live_signals, scalp_sigs, all_bt_results,
+            mc_results_all, account_key, selected_markets
+        )
+        st.code(ctx_preview, language="text")
 
 # ─────────────────────────────────────────────────────────────
 # AUTO REFRESH
