@@ -894,11 +894,12 @@ for col, mk in zip(sig_cols, selected_markets):
         scalp = next((sc for sc in scalp_sigs if sc["mk"] == mk), None)
         scalp_bit = (f'<div style="margin-top:5px"><span class="pill pill-scalp">⚡ {scalp["direction"]} {scalp["conf"]}%</span></div>'
                      if scalp else "")
+        price_display = f'${sig["price"]:,.1f}' if sig["price"] else ""
         st.markdown(
             f'<div style="border:1.5px solid {bc};border-radius:6px;padding:13px;background:#0c0c1e">'
             f'<div style="font-size:9px;color:#33334a;font-family:Space Mono,monospace">{mk} · {info["label"]}</div>'
             f'<div style="font-size:1.35rem;font-weight:700;color:#fff;font-family:Space Mono,monospace">'
-            f'{"" if not sig["price"] else f"${sig[\"price\"]:,.1f}"}</div>'
+            f'{price_display}</div>'
             f'<div style="font-size:11px;color:{cc};font-family:Space Mono,monospace">{sig["chg"]:+.2f}%</div>'
             f'<div style="margin:5px 0"><span class="pill {pc}">{s}</span></div>'
             f'<div style="font-size:10px;color:#33334a">Conf <b style="color:#fff">{sig["conf"]}%</b> · RSI <b style="color:#fff">{sig["rsi"]}</b></div>'
@@ -1180,7 +1181,7 @@ with tab_bt:
                 xaxis=dict(gridcolor="#0f0f20"), yaxis=dict(gridcolor="#0f0f20"),
                 showlegend=False, title=dict(text="Account Equity (Real $ P&L)", font=dict(color="#44445a", size=12))
             )
-            st.plotly_chart(fig_eq, use_container_width=True, key="bt_eq")
+            st.plotly_chart(fig_eq, width="stretch", key="bt_eq")
 
         # Trade log
         with st.expander(f"📋 Trade log ({bt2['total_trades']} trades)"):
@@ -1193,7 +1194,7 @@ with tab_bt:
                     .map(lambda v: "color:#00e664" if isinstance(v, (int,float)) and v > 0
                          else "color:#ff3c3c" if isinstance(v, (int,float)) and v < 0 else "",
                          subset=["pnl"]),
-                use_container_width=True, hide_index=True
+                width="stretch", hide_index=True
             )
 
     elif bt2 and "error" in bt2:
@@ -1373,7 +1374,7 @@ with tab_chart:
         )
         fig_ch.update_xaxes(gridcolor="#0f0f20", zerolinecolor="#0f0f20")
         fig_ch.update_yaxes(gridcolor="#0f0f20", zerolinecolor="#0f0f20")
-        st.plotly_chart(fig_ch, use_container_width=True, key="main_chart")
+        st.plotly_chart(fig_ch, width="stretch", key="main_chart")
 
 # ══════════════════════════════════════════════════════════════
 # TAB 5 — REFERENCE
@@ -1408,7 +1409,7 @@ with tab_ref:
             f"Max lots ({account_key})": acct2["max_contracts"].get(mk, "—"),
             "Notes": info["desc"][:70],
         })
-    st.dataframe(pd.DataFrame(spec_rows), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(spec_rows), width="stretch", hide_index=True)
 
     st.markdown("""
 ---
