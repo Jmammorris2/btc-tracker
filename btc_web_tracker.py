@@ -1,9 +1,9 @@
 """
-NIGEL — Private Trading Intelligence  v2.0
+NIGEL — Private Trading Intelligence  v3.0
 Ultra-luxury AI trading platform.
 Run: streamlit run nigel.py
 
-HIDDEN GIFTS (undocumented features):
+HIDDEN GIFTS (now fully active):
   ◈ Divergence Engine    — RSI & MACD divergence detection on every signal
   ◈ Regime Detector      — classifies market as Trending / Ranging / Volatile
   ◈ Smart Money Clock    — session overlap quality score (institutional bias)
@@ -136,6 +136,9 @@ hr{border:none!important;border-top:1px solid var(--border)!important;margin:20p
 .rule-name{font-family:'Cinzel',serif;font-size:12px;font-weight:600;letter-spacing:.06em;color:#fff;}
 .rule-desc{font-family:'Cormorant Garamond',serif;font-style:italic;font-size:12px;color:var(--text-dim);}
 .kelly-panel{background:linear-gradient(135deg,rgba(201,168,76,0.05),transparent);border:1px solid var(--border);border-radius:2px;padding:16px 20px;}
+.gift-badge{display:inline-block;background:rgba(201,168,76,0.1);border:1px solid rgba(201,168,76,0.3);border-radius:1px;padding:2px 10px;font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--gold);letter-spacing:.1em;margin-bottom:8px;}
+.macd-bull{background:rgba(26,255,138,0.04);border:1px solid rgba(26,255,138,0.15);border-radius:1px;padding:6px 12px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--emerald);margin-top:4px;}
+.macd-bear{background:rgba(255,45,85,0.04);border:1px solid rgba(255,45,85,0.15);border-radius:1px;padding:6px 12px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--crimson);margin-top:4px;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -213,12 +216,9 @@ for k, v in DEFAULTS.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
-# Back-fill missing keys on old trader objects (fix for KeyError: 'philosophy')
 for tr in st.session_state["traders"]:
-    if "philosophy" not in tr:
-        tr["philosophy"] = tr.get("style", "")
-    if "paused" not in tr:
-        tr["paused"] = False
+    if "philosophy" not in tr: tr["philosophy"] = tr.get("style", "")
+    if "paused" not in tr: tr["paused"] = False
 
 # ── API KEY GATE ──────────────────────────────────────────────
 if not st.session_state["polygon_key"]:
@@ -281,7 +281,7 @@ def fetch_binance_candles(sym, interval="1h", limit=100):
     try:
         url = f"https://api.binance.com/api/v3/klines?symbol={bsym}&interval={interval}&limit={limit}"
         data = requests.get(url, timeout=10).json()
-        df = pd.DataFrame(data, columns=['t','o','h','l','c','v','_','_','_','_','_','_'])
+        df = pd.DataFrame(data, columns=['t','o','h','l','c','v','_1','_2','_3','_4','_5','_6'])
         df['t'] = pd.to_datetime(df['t'], unit='ms')
         for col in ['o','h','l','c','v']: df[col] = pd.to_numeric(df[col])
         return df.rename(columns={'t':'time','o':'open','h':'high','l':'low','c':'close','v':'volume'}).set_index('time')[['open','high','low','close','volume']]
@@ -337,6 +337,7 @@ def atr_series(closes, highs, lows, n=14):
         h = highs[i] if highs else closes[i]*1.005
         l = lows[i]  if lows  else closes[i]*0.995
         tr.append(max(h-l, abs(h-closes[i-1]), abs(l-closes[i-1])))
+    if len(tr) < n: return [None]*len(closes)
     atr = [sum(tr[:n])/n]
     for v in tr[n:]: atr.append((atr[-1]*(n-1)+v)/n)
     return [None]*n + atr
@@ -353,13 +354,9 @@ def bb_bands(closes, n=20, k=2.0):
     return pad+mid, pad+upper, pad+lower, pad+pct
 
 # ══════════════════════════════════════════════════════════════
-# HIDDEN GIFT 1 — REGIME DETECTOR
+# GIFT 1 — REGIME DETECTOR
 # ══════════════════════════════════════════════════════════════
 def detect_regime(closes, highs=None, lows=None):
-    """
-    Classifies market regime: Trending / Ranging / Volatile.
-    Uses ADX-lite (directional movement), ATR percentile, and BB width.
-    """
     if len(closes) < 25:
         return {"regime": "UNKNOWN", "adx_lite": 0, "bb_width_pct": 0, "atr_pct_rank": 50}
     h = highs or [c*1.005 for c in closes]
@@ -383,7 +380,7 @@ def detect_regime(closes, highs=None, lows=None):
     bb_width_pct = round(bb_w_vals[-1], 2) if bb_w_vals else 0
     atr_pct = atr14/closes[-1]*100
     atr_history = [v/closes[max(0,i-1)]*100 for i,v in enumerate(atr_v)]
-    atr_pct_rank = round(100*sum(1 for v in atr_history if v<=atr_pct)/len(atr_history), 0)
+    atr_pct_rank = round(100*sum(1 for v in atr_history if v<=atr_pct)/len(atr_history), 0) if atr_history else 50
     if atr_pct_rank > 80:
         regime = "VOLATILE"
     elif adx_lite > 25:
@@ -393,136 +390,123 @@ def detect_regime(closes, highs=None, lows=None):
     return {"regime": regime, "adx_lite": adx_lite, "bb_width_pct": bb_width_pct, "atr_pct_rank": int(atr_pct_rank)}
 
 # ══════════════════════════════════════════════════════════════
-# HIDDEN GIFT 2 — DIVERGENCE ENGINE
+# GIFT 2 — DIVERGENCE ENGINE (RSI + MACD)
 # ══════════════════════════════════════════════════════════════
 def detect_divergence(closes, rsi_vals, lookback=10):
-    """
-    Detects bullish and bearish RSI divergence over the last N bars.
-    Returns dict with type and description.
-    """
-    result = {"bull_div": False, "bear_div": False, "desc": ""}
+    result = {"bull_div": False, "bear_div": False, "desc": "",
+              "macd_bull": False, "macd_bear": False, "macd_desc": ""}
     if len(closes) < lookback+2 or len(rsi_vals) < lookback+2: return result
+
+    # RSI divergence
     c_slice = closes[-lookback:]; r_slice = [v for v in rsi_vals[-lookback:] if v is not None]
-    if len(r_slice) < lookback: return result
-    price_low_idx = c_slice.index(min(c_slice)); price_hi_idx = c_slice.index(max(c_slice))
-    rsi_at_price_low = r_slice[price_low_idx]; rsi_at_price_hi = r_slice[price_hi_idx]
-    prev_c = closes[-(lookback*2):-lookback]; prev_r = [v for v in rsi_vals[-(lookback*2):-lookback] if v is not None]
-    if not prev_c or not prev_r: return result
-    prev_low = min(prev_c); prev_hi = max(prev_c)
-    prev_rsi_low = prev_r[prev_c.index(prev_low) if prev_low in prev_c else 0]
-    prev_rsi_hi  = prev_r[prev_c.index(prev_hi)  if prev_hi  in prev_c else 0]
-    if min(c_slice) < prev_low and rsi_at_price_low > prev_rsi_low + 3:
-        result["bull_div"] = True
-        result["desc"] = f"BULL DIV · Price made lower low, RSI did not — hidden demand"
-    elif max(c_slice) > prev_hi and rsi_at_price_hi < prev_rsi_hi - 3:
-        result["bear_div"] = True
-        result["desc"] = f"BEAR DIV · Price made higher high, RSI did not — hidden exhaustion"
+    if len(r_slice) >= lookback:
+        price_low_idx  = c_slice.index(min(c_slice))
+        price_hi_idx   = c_slice.index(max(c_slice))
+        rsi_at_price_low = r_slice[price_low_idx]
+        rsi_at_price_hi  = r_slice[price_hi_idx]
+        prev_c = closes[-(lookback*2):-lookback]
+        prev_r = [v for v in rsi_vals[-(lookback*2):-lookback] if v is not None]
+        if prev_c and prev_r:
+            prev_low = min(prev_c); prev_hi = max(prev_c)
+            try:
+                prev_rsi_low = prev_r[prev_c.index(prev_low)]
+                prev_rsi_hi  = prev_r[prev_c.index(prev_hi)]
+                if min(c_slice) < prev_low and rsi_at_price_low > prev_rsi_low + 3:
+                    result["bull_div"] = True
+                    result["desc"] = "BULL DIV · Price lower low, RSI did not — hidden demand"
+                elif max(c_slice) > prev_hi and rsi_at_price_hi < prev_rsi_hi - 3:
+                    result["bear_div"] = True
+                    result["desc"] = "BEAR DIV · Price higher high, RSI did not — hidden exhaustion"
+            except (ValueError, IndexError): pass
+
+    # MACD divergence
+    if len(closes) >= 26:
+        macd_series = []
+        for i in range(26, len(closes)+1):
+            sl = closes[:i]
+            macd_series.append(ema_series(sl,12)[-1] - ema_series(sl,26)[-1])
+        if len(macd_series) >= lookback*2:
+            m_slice   = macd_series[-lookback:]
+            m_prev    = macd_series[-(lookback*2):-lookback]
+            p_slice   = closes[-lookback:]
+            p_prev_s  = closes[-(lookback*2):-lookback]
+            if p_prev_s and m_prev:
+                if min(p_slice) < min(p_prev_s) and min(m_slice) > min(m_prev)+0.0001:
+                    result["macd_bull"] = True
+                    result["macd_desc"] = "MACD BULL DIV · Price new low, MACD held higher — momentum diverging"
+                elif max(p_slice) > max(p_prev_s) and max(m_slice) < max(m_prev)-0.0001:
+                    result["macd_bear"] = True
+                    result["macd_desc"] = "MACD BEAR DIV · Price new high, MACD turned lower — momentum fading"
     return result
 
 # ══════════════════════════════════════════════════════════════
-# HIDDEN GIFT 3 — PATTERN SCANNER
+# GIFT 3 — PATTERN SCANNER (8 patterns)
 # ══════════════════════════════════════════════════════════════
 def scan_patterns(closes, highs=None, lows=None):
-    """
-    Scans for 8 classical price-action patterns on daily closes.
-    """
     patterns = []
     if len(closes) < 10: return patterns
     h = highs or [c*1.005 for c in closes]
     l = lows  or [c*0.995 for c in closes]
     c = closes
-    # Higher highs + higher lows (uptrend structure)
     if h[-1]>h[-3] and h[-3]>h[-5] and l[-1]>l[-3] and l[-3]>l[-5]:
         patterns.append("HH/HL STRUCTURE")
-    # Lower highs + lower lows (downtrend)
     if h[-1]<h[-3] and h[-3]<h[-5] and l[-1]<l[-3] and l[-3]<l[-5]:
         patterns.append("LH/LL STRUCTURE")
-    # Inside bar
     if h[-1]<h[-2] and l[-1]>l[-2]:
         patterns.append("INSIDE BAR")
-    # Outside bar
     if h[-1]>h[-2] and l[-1]<l[-2]:
         patterns.append("OUTSIDE BAR")
-    # Three-bar reversal (bull)
     if c[-3]<c[-4] and c[-2]<c[-3] and c[-1]>c[-2] and c[-1]>c[-3]:
         patterns.append("3-BAR BULL REV")
-    # Three-bar reversal (bear)
     if c[-3]>c[-4] and c[-2]>c[-3] and c[-1]<c[-2] and c[-1]<c[-3]:
         patterns.append("3-BAR BEAR REV")
-    # Tight consolidation (< 1% range over 4 bars)
     last4_range = (max(h[-4:])-min(l[-4:]))/c[-1]*100
     if last4_range < 1.0:
         patterns.append("TIGHT COIL")
-    # Wide-range bar (body > 2x average)
     avg_body = np.mean([abs(c[i]-c[i-1]) for i in range(-5,-1)]) if len(c)>5 else 0
     if abs(c[-1]-c[-2]) > 2*avg_body and avg_body > 0:
         patterns.append("WIDE RANGE BAR")
     return patterns
 
 # ══════════════════════════════════════════════════════════════
-# HIDDEN GIFT 4 — SMART MONEY CLOCK
+# GIFT 4 — SMART MONEY CLOCK
 # ══════════════════════════════════════════════════════════════
 def smart_money_clock():
-    """
-    Returns a 0-100 score for current institutional activity quality.
-    Based on session overlaps, time-of-day volatility primes.
-    """
     utc = datetime.now(ZoneInfo("UTC"))
     h = utc.hour + utc.minute/60
-    # Scoring by hour (UTC) — peak institutional windows
     score_map = {
-        (7,8): 55,   # London open approach
-        (8,9): 85,   # London open
-        (9,10): 90,  # London morning prime
-        (10,11): 80,
-        (11,12): 65,
-        (12,13): 70, # NY open approach
-        (13,14): 95, # NY open — peak overlap
-        (14,15): 95,
-        (15,16): 85,
-        (16,17): 75,
-        (17,18): 60,
-        (18,19): 45,
-        (19,20): 35,
-        (20,21): 30,
-        (21,22): 40, # Tokyo approach
-        (22,23): 55,
-        (23,24): 60,
-        (0,1):   65,
-        (1,2):   70, # Tokyo prime
-        (2,3):   65,
-        (3,4):   55,
-        (4,5):   45,
-        (5,6):   40,
-        (6,7):   45,
+        (7,8):55,(8,9):85,(9,10):90,(10,11):80,(11,12):65,
+        (12,13):70,(13,14):95,(14,15):95,(15,16):85,(16,17):75,
+        (17,18):60,(18,19):45,(19,20):35,(20,21):30,(21,22):40,
+        (22,23):55,(23,24):60,(0,1):65,(1,2):70,(2,3):65,
+        (3,4):55,(4,5):45,(5,6):40,(6,7):45,
     }
     score = 25
     for (h1,h2), s in score_map.items():
         if h1 <= h < h2:
-            score = s
-            break
-    # Bonus for day of week (Mon-Fri full score, Fri afternoon reduced)
+            score = s; break
     dow = utc.weekday()
-    if dow == 4 and h > 16: score = int(score * 0.7)  # Friday afternoon
-    if dow in (5, 6): score = int(score * 0.4)        # Weekend
+    if dow == 4 and h > 16: score = int(score * 0.7)
+    if dow in (5, 6): score = int(score * 0.4)
+    # Session detail
+    sessions_active = []
+    if 0<=h<9:   sessions_active.append("Tokyo")
+    if 8<=h<17:  sessions_active.append("London")
+    if 13<=h<22: sessions_active.append("New York")
+    if 13<=h<17: sessions_active.append("Overlap")
     label = "PEAK" if score >= 85 else "ACTIVE" if score >= 60 else "MODERATE" if score >= 40 else "LOW"
-    return score, label
+    return score, label, sessions_active
 
 # ══════════════════════════════════════════════════════════════
-# HIDDEN GIFT 5 — RISK-OF-RUIN CALCULATOR
+# GIFT 5 — RISK-OF-RUIN CALCULATOR
 # ══════════════════════════════════════════════════════════════
 def risk_of_ruin(win_rate_pct, rr_ratio, risk_pct_per_trade, ruin_threshold=0.5):
-    """
-    Calculates Kelly fraction and approximate risk of ruin.
-    ruin_threshold: fraction of starting capital considered 'ruin' (default 50%)
-    """
     w = win_rate_pct / 100
     l = 1 - w
-    if rr_ratio <= 0 or w <= 0: return {"kelly": 0, "ror": 100, "edge": 0, "full_kelly": 0}
+    if rr_ratio <= 0 or w <= 0: return {"kelly": 0, "ror": 100, "edge": 0, "full_kelly": 0, "half_kelly": 0, "using_pct": 0, "vs_half_kelly": "OVER"}
     edge = w * rr_ratio - l
     full_kelly = edge / rr_ratio if edge > 0 else 0
     half_kelly = full_kelly / 2
-    # Approximation of risk of ruin via gamblers ruin formula
     if edge <= 0: ror = 100.0
     else:
         q = l / (w * rr_ratio)
@@ -540,12 +524,9 @@ def risk_of_ruin(win_rate_pct, rr_ratio, risk_pct_per_trade, ruin_threshold=0.5)
     }
 
 # ══════════════════════════════════════════════════════════════
-# HIDDEN GIFT 6 — VOLATILITY REGIME (GARCH-LITE)
+# GIFT 6 — VOLATILITY FORECAST (GARCH-LITE)
 # ══════════════════════════════════════════════════════════════
 def volatility_regime(closes, window=20):
-    """
-    GARCH-lite: computes realized vol, its percentile rank, and forecasts direction.
-    """
     if len(closes) < window+5:
         return {"rv": 0, "rv_pct_rank": 50, "forecast": "STABLE", "rv_5d": 0}
     rets = [math.log(closes[i]/closes[i-1]) for i in range(1,len(closes))]
@@ -557,8 +538,8 @@ def volatility_regime(closes, window=20):
     rv_5d  = np.mean([r**2 for r in rets[-5:]])**0.5 * math.sqrt(252)*100
     rank = sum(1 for v in rv_series if v <= rv_now)/len(rv_series)*100
     if rv_now > rv_series[-2]*1.15:  forecast = "EXPANDING"
-    elif rv_now < rv_series[-2]*0.88:forecast = "CONTRACTING"
-    else:                            forecast = "STABLE"
+    elif rv_now < rv_series[-2]*0.88: forecast = "CONTRACTING"
+    else:                             forecast = "STABLE"
     return {"rv": round(rv_now,1), "rv_pct_rank": round(rank,0), "forecast": forecast, "rv_5d": round(rv_5d,1)}
 
 # ══════════════════════════════════════════════════════════════
@@ -570,7 +551,7 @@ def compute_full_signal(closes, highs=None, lows=None, volumes=None, rules=None)
                 "atr_pct":0,"bb_pct":50,"stoch_k":50,"mom":0,"vol_surge":1,
                 "score":0,"long_pts":0,"short_pts":0,"reasons":[],"rule_block":False,
                 "stop":None,"target":None,"ema8":closes[-1],"ema21":closes[-1],
-                "divergence":{"bull_div":False,"bear_div":False,"desc":""},
+                "divergence":{"bull_div":False,"bear_div":False,"desc":"","macd_bull":False,"macd_bear":False,"macd_desc":""},
                 "regime":{"regime":"UNKNOWN"},"patterns":[],"vol_regime":{"rv":0}}
     price = closes[-1]
     e8  = ema_series(closes, 8);  e8v  = e8[-1]
@@ -603,7 +584,6 @@ def compute_full_signal(closes, highs=None, lows=None, volumes=None, rules=None)
     if volumes and len(volumes)>=20:
         vol_ma = sum(volumes[-20:])/20; vol_surge = volumes[-1]/(vol_ma+1e-9)
     mom5  = (closes[-1]-closes[-6])/closes[-6]*100 if len(closes)>5 else 0
-    mom10 = (closes[-1]-closes[-11])/closes[-11]*100 if len(closes)>10 else 0
     long_pts=0; short_pts=0; reasons=[]
     if e8v>e21v>e50v:    long_pts+=5;  reasons.append("EMA 8/21/50 fully bullish")
     elif e8v>e21v:       long_pts+=3;  reasons.append("EMA 8 > 21 bullish")
@@ -637,10 +617,11 @@ def compute_full_signal(closes, highs=None, lows=None, volumes=None, rules=None)
     if vol_surge>1.8:
         if long_pts>short_pts:  long_pts+=2;  reasons.append(f"Volume surge {vol_surge:.1f}× confirms")
         elif short_pts>long_pts:short_pts+=2; reasons.append(f"Volume surge {vol_surge:.1f}× confirms")
-    # Divergence bonus/malus
     div = detect_divergence(closes, rsi_arr)
-    if div["bull_div"]:  long_pts+=4;  reasons.append("⬟ Bullish divergence detected")
-    if div["bear_div"]:  short_pts+=4; reasons.append("⬟ Bearish divergence detected")
+    if div["bull_div"]:   long_pts+=4;  reasons.append("⬟ RSI Bullish divergence")
+    if div["bear_div"]:   short_pts+=4; reasons.append("⬟ RSI Bearish divergence")
+    if div["macd_bull"]:  long_pts+=3;  reasons.append("⬟ MACD Bullish divergence")
+    if div["macd_bear"]:  short_pts+=3; reasons.append("⬟ MACD Bearish divergence")
     rule_block=False
     for rule in (rules or []):
         if not rule.get("active", True): continue
@@ -678,7 +659,6 @@ def compute_full_signal(closes, highs=None, lows=None, volumes=None, rules=None)
     direction_long = "BUY" in sig or sig=="OVERSOLD"
     stop   = round(price-stop_dist if direction_long else price+stop_dist, 4)
     target = round(price+stop_dist*rr if direction_long else price-stop_dist*rr, 4)
-    # Enrich with hidden gift data
     regime     = detect_regime(closes, h_arr, l_arr)
     patterns   = scan_patterns(closes, h_arr, l_arr)
     vol_regime = volatility_regime(closes)
@@ -689,18 +669,14 @@ def compute_full_signal(closes, highs=None, lows=None, volumes=None, rules=None)
         "stoch_k":round(stoch_k,1),"mom":round(mom5,2),"vol_surge":round(vol_surge,2),
         "macd":round(macd,4),"macd_signal":round(macd_signal_line,4),
         "ema8":round(e8v,2),"ema21":round(e21v,2),"ema50":round(e50v,2),
-        "reasons":reasons[:6],"rule_block":rule_block,"stop":stop,"target":target,
+        "reasons":reasons[:8],"rule_block":rule_block,"stop":stop,"target":target,
         "divergence": div, "regime": regime, "patterns": patterns, "vol_regime": vol_regime,
     }
 
 # ══════════════════════════════════════════════════════════════
-# HIDDEN GIFT 7 — DRAWDOWN SHIELD
+# GIFT 7 — DRAWDOWN SHIELD
 # ══════════════════════════════════════════════════════════════
 def check_drawdown_shield():
-    """
-    If collective trader drawdown exceeds 8%, pauses all traders.
-    Automatically lifts when drawdowns recover to 3%.
-    """
     total_balance = sum(tr["balance"] for tr in TRADERS)
     total_peak    = sum(tr["peak"]    for tr in TRADERS)
     if total_peak <= 0: return False
@@ -797,6 +773,9 @@ def run_diagnostics(sigs, fg_val):
         elif sig["signal"] in ("SELL","STRONG SELL","OVERBOUGHT") and bb>55: s+=15
         elif sig["signal"]!="HOLD": s+=5
         if sig.get("rule_block"): s=max(0,s-25); notes.append("Rule blocked −25")
+        div=sig.get("divergence",{})
+        if div.get("bull_div") or div.get("macd_bull"): s+=10; notes.append("Divergence confluence +10")
+        elif div.get("bear_div") or div.get("macd_bear"): s+=10; notes.append("Divergence confluence +10")
         s=min(100,max(0,s)); all_scores.append(s)
         per[mk]={"score":s,"notes":notes,"dir":sig.get("signal","HOLD"),"conf":conf}
     overall=round(np.mean(all_scores) if all_scores else 0)
@@ -829,7 +808,7 @@ You receive real market data with full technical indicators and give sharp, spec
 Use the numbers. Make clear calls. No hedging, no disclaimers. You speak like someone who has traded through 4 recessions.
 Format your response with clear instrument sections. Under 400 words. End with one overall market statement."""
 
-# HIDDEN GIFT 8 — WHISPER FEED SYSTEM
+# GIFT 8 — WHISPER FEED
 WHISPER_SYSTEM = """You are Nigel's inner voice — a one-line market intuition whispered to the trader every few minutes.
 No analysis, no data. Just a single, elegant, pithy observation about markets, trading psychology, or current conditions.
 It should feel like a thought from a wise trader who has seen everything. Max 20 words. No quotes around it. Return ONLY the whisper text."""
@@ -864,9 +843,9 @@ def generate_notes(sigs, sessions):
         except: pass
 
 def generate_whisper(sigs):
-    """HIDDEN GIFT 8 — Whispers a pithy market thought every 5 minutes."""
+    """GIFT 8 — Whispers a pithy market thought every 5 minutes."""
     if not CLKEY: return
-    cooldown = 300  # 5 minutes
+    cooldown = 300
     if time.time()-st.session_state["last_whisper_call"]<cooldown: return
     st.session_state["last_whisper_call"] = time.time()
     signals_str = ", ".join(f"{k}:{v['signal']}" for k,v in sigs.items())
@@ -882,11 +861,13 @@ def build_ai_context(sigs, prices_dict, diag, bt_cache=None):
            f"OVERALL HEALTH: {diag.get('overall',0)}/100","","LIVE SIGNALS:"]
     for mk,sig in sigs.items():
         p=prices_dict.get(mk)
+        div=sig.get("divergence",{})
         lines.append(f"  {mk}: {sig['signal']} conf={sig['conf']}% price={p} RSI={sig['rsi']} "
                      f"BB%={sig['bb_pct']} mom={sig['mom']:+.1f}% ATR={sig['atr_pct']:.2f}% "
                      f"StochK={sig['stoch_k']} Vol={sig['vol_surge']:.1f}x EMA8={sig['ema8']} EMA21={sig['ema21']} "
                      f"Regime={sig['regime'].get('regime','?')} Patterns={','.join(sig['patterns'][:2]) if sig['patterns'] else 'none'} "
-                     f"BullDiv={sig['divergence']['bull_div']} BearDiv={sig['divergence']['bear_div']}")
+                     f"RSI_BullDiv={div.get('bull_div',False)} RSI_BearDiv={div.get('bear_div',False)} "
+                     f"MACD_BullDiv={div.get('macd_bull',False)} MACD_BearDiv={div.get('macd_bear',False)}")
     if bt_cache:
         lines+=["","BACKTESTS:"]
         for k,bt in list(bt_cache.items())[:3]:
@@ -964,9 +945,8 @@ def get_sessions():
     if not s:    s.append(("OFF-HOURS","#374151"))
     return s
 
-# HIDDEN GIFT 9 — TRADE JOURNAL CSV EXPORT
+# GIFT 9 — TRADE JOURNAL CSV
 def build_journal_csv():
-    """Builds a full session trade journal as CSV bytes."""
     rows = []
     for tr in TRADERS:
         for t in tr["trades"]:
@@ -994,7 +974,7 @@ def build_journal_csv():
 # ══════════════════════════════════════════════════════════════
 with st.sidebar:
     st.markdown('<div style="font-family:Cinzel,serif;font-weight:900;font-size:1.4rem;letter-spacing:.3em;color:#fff;margin:16px 0 4px">NIGEL</div>',unsafe_allow_html=True)
-    st.markdown('<div style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:11px;color:#5a5570;margin-bottom:20px">Private Trading Intelligence v2.0</div>',unsafe_allow_html=True)
+    st.markdown('<div style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:11px;color:#5a5570;margin-bottom:20px">Private Trading Intelligence v3.0</div>',unsafe_allow_html=True)
     st.divider()
     with st.expander("🔑 API Keys"):
         np_ = st.text_input("Polygon.io", value=POLY, type="password")
@@ -1023,8 +1003,6 @@ with st.sidebar:
         ]
         st.rerun()
     if st.button("🗑 Reset Backtests"): st.session_state["bt_cache"]={};  st.rerun()
-
-    # HIDDEN GIFT 9 — Trade Journal Download
     st.divider()
     journal_csv = build_journal_csv()
     if journal_csv:
@@ -1068,23 +1046,18 @@ with st.spinner(""):
     fg_val,fg_label=fetch_fear_greed()
     diag=run_diagnostics(market_signals,fg_val)
 
-# Run drawdown shield first
 shield_active = check_drawdown_shield()
-
-# Run traders
 for tr in TRADERS: simulate_trader(tr, market_signals)
-
-# Generate notes & whispers
 sessions_now=get_sessions(); session_names=[s for s,_ in sessions_now]
 generate_notes(market_signals, session_names)
 generate_whisper(market_signals)
 
-# Inject signal feed
 now_ts=time.time()
 if (now_ts-st.session_state["last_refresh"])>=st.session_state["refresh_interval"]:
     st.session_state["last_refresh"]=now_ts
     for mk,sig in market_signals.items():
         if sig["signal"]!="HOLD" and sig["conf"]>=55:
+            div=sig.get("divergence",{})
             st.session_state["signal_feed"].insert(0,{
                 "time":datetime.now().strftime("%H:%M:%S"),
                 "mk":mk,"signal":sig["signal"],"conf":sig["conf"],
@@ -1092,15 +1065,16 @@ if (now_ts-st.session_state["last_refresh"])>=st.session_state["refresh_interval
                 "reasons":sig.get("reasons",[])[:2],
                 "patterns":sig.get("patterns",[])[:2],
                 "regime":sig.get("regime",{}).get("regime","?"),
-                "div_bull":sig["divergence"]["bull_div"],
-                "div_bear":sig["divergence"]["bear_div"],
+                "div_bull":div.get("bull_div",False),
+                "div_bear":div.get("bear_div",False),
+                "macd_bull":div.get("macd_bull",False),
+                "macd_bear":div.get("macd_bear",False),
             })
     st.session_state["signal_feed"]=st.session_state["signal_feed"][:80]
     st.session_state["diag_history"].append({"time":datetime.now(),"score":diag["overall"]})
     st.session_state["diag_history"]=st.session_state["diag_history"][-200:]
 
-# Smart money clock
-sm_score, sm_label = smart_money_clock()
+sm_score, sm_label, sm_sessions = smart_money_clock()
 
 # ══════════════════════════════════════════════════════════════
 # MASTHEAD
@@ -1129,7 +1103,6 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Shield banner
 if shield_active:
     st.markdown('<div class="shield-banner">⚠ DRAWDOWN SHIELD ACTIVE — All traders paused. Collective drawdown exceeded 8%. Monitoring for recovery above 3%.</div>', unsafe_allow_html=True)
 
@@ -1143,19 +1116,23 @@ def make_ticker():
         d=sig.get("signal","HOLD"); arrow="▲" if chg>=0 else "▼"; cc="tick-up" if chg>=0 else "tick-dn"
         fmt=f"${p:,.0f}" if mk in ("BTC","ETH") else f"${p:,.2f}"
         badge_cls="badge-long" if "BUY" in d or d=="OVERSOLD" else "badge-short" if "SELL" in d or d=="OVERBOUGHT" else "badge-hold"
-        regime_badge=""
         reg=sig.get("regime",{}).get("regime","")
+        regime_badge=""
         if reg:
             rbc="badge-regime-trend" if reg=="TRENDING" else "badge-regime-range" if reg=="RANGING" else "badge-regime-vol"
             regime_badge=f'<span class="badge {rbc}" style="font-size:8px;padding:1px 5px;margin-left:4px">{reg[:3]}</span>'
-        items.append(f'<span class="tick-item"><span class="tick-sym">{mk}</span><span class="tick-px">{fmt}</span><span class="{cc}">{arrow} {abs(chg):.2f}%</span><span class="badge {badge_cls}" style="font-size:9px;padding:1px 7px">{d}</span>{regime_badge}<span class="tick-sep">·</span></span>')
+        div=sig.get("divergence",{})
+        div_badge=""
+        if div.get("bull_div") or div.get("macd_bull"): div_badge='<span style="color:#1aff8a;font-size:9px;margin-left:4px">⬟</span>'
+        elif div.get("bear_div") or div.get("macd_bear"): div_badge='<span style="color:#ff2d55;font-size:9px;margin-left:4px">⬟</span>'
+        items.append(f'<span class="tick-item"><span class="tick-sym">{mk}</span><span class="tick-px">{fmt}</span><span class="{cc}">{arrow} {abs(chg):.2f}%</span><span class="badge {badge_cls}" style="font-size:9px;padding:1px 7px">{d}</span>{regime_badge}{div_badge}<span class="tick-sep">·</span></span>')
     inner="".join(items)*3
     return f'<div class="ticker-wrap"><div class="ticker-track">{inner}</div></div>'
 
 st.markdown(make_ticker(), unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════
-# LIVE SIGNAL CARDS
+# HEADER STATS
 # ══════════════════════════════════════════════════════════════
 health=diag["overall"]
 h_color="#1aff8a" if health>=70 else "#c9a84c" if health>=45 else "#ff2d55"
@@ -1168,11 +1145,14 @@ with header_cols[1]:
 with header_cols[2]:
     st.markdown(f'<div style="text-align:center;padding:8px 0"><div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.14em;color:#5a5570">FEAR/GREED</div><div style="font-family:Cinzel,serif;font-size:2.4rem;font-weight:900;line-height:1;color:{fg_color}">{fg_val}</div><div style="font-size:10px;color:#5a5570;font-style:italic">{fg_label}</div></div>',unsafe_allow_html=True)
 with header_cols[3]:
-    # HIDDEN GIFT 4 displayed
+    sm_sessions_str = " · ".join(sm_sessions) if sm_sessions else "Off Hours"
     st.markdown(f'<div style="text-align:center;padding:8px 0"><div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.14em;color:#5a5570">INST. FLOW</div><div style="font-family:Cinzel,serif;font-size:2.4rem;font-weight:900;line-height:1;color:{sm_color}">{sm_score}</div><div style="font-size:10px;color:#5a5570;font-style:italic">{sm_label}</div></div>',unsafe_allow_html=True)
 
 st.markdown(f'<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.15em;color:#5a5570;margin-bottom:10px"><span class="live-dot"></span>LIVE SIGNALS · {"✓ CLAUDE AI" if CLKEY else "FALLBACK NOTES"}</div>',unsafe_allow_html=True)
 
+# ══════════════════════════════════════════════════════════════
+# SIGNAL CARDS
+# ══════════════════════════════════════════════════════════════
 sig_cols=st.columns(len(SEL))
 for col,mk in zip(sig_cols,SEL):
     with col:
@@ -1185,12 +1165,17 @@ for col,mk in zip(sig_cols,SEL):
         pfmt=f"${p:,.0f}" if mk in ("BTC","ETH") else f"${p:,.2f}"
         sfmt=f"${sig['stop']:,.2f}" if sig.get("stop") else "—"
         tfmt=f"${sig['target']:,.2f}" if sig.get("target") else "—"
-        dd=diag["per"].get(mk,{})
         reg=sig.get("regime",{}); reg_name=reg.get("regime","?")
         reg_cls="badge-regime-trend" if reg_name=="TRENDING" else "badge-regime-range" if reg_name=="RANGING" else "badge-regime-vol"
         div=sig.get("divergence",{}); div_html=""
-        if div.get("bull_div"): div_html='<div class="divergence-bull">⬟ ' + div.get("desc","") + '</div>'
-        elif div.get("bear_div"): div_html='<div class="divergence-bear">⬟ ' + div.get("desc","") + '</div>'
+        if div.get("bull_div"):
+            div_html += f'<div class="divergence-bull">⬟ {div.get("desc","")}</div>'
+        if div.get("bear_div"):
+            div_html += f'<div class="divergence-bear">⬟ {div.get("desc","")}</div>'
+        if div.get("macd_bull"):
+            div_html += f'<div class="macd-bull">⬟ {div.get("macd_desc","")}</div>'
+        if div.get("macd_bear"):
+            div_html += f'<div class="macd-bear">⬟ {div.get("macd_desc","")}</div>'
         pats=sig.get("patterns",[])
         pats_html="".join(f'<span class="pattern-tag">{p2}</span>' for p2 in pats[:3]) if pats else ""
         vol_r=sig.get("vol_regime",{}); vol_forecast=vol_r.get("forecast","")
@@ -1229,9 +1214,7 @@ for col,mk in zip(sig_cols,SEL):
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# ══════════════════════════════════════════════════════════════
-# WHISPER FEED (HIDDEN GIFT 8 — visible strip)
-# ══════════════════════════════════════════════════════════════
+# GIFT 8 — Whisper Feed display
 if st.session_state["whisper_feed"]:
     latest_whisper = st.session_state["whisper_feed"][0]
     st.markdown(f'<div class="whisper-note">◈ &nbsp;{latest_whisper["text"]}<span style="float:right;font-family:JetBrains Mono,monospace;font-size:9px;color:#3a3550">{latest_whisper["time"]}</span></div>', unsafe_allow_html=True)
@@ -1263,7 +1246,6 @@ with t1:
                 mk_name=MARKETS.get(n['market'],{}).get('label',n['market'])
                 st.markdown(f'<div class="nigel-note {cls}"><div class="note-head" style="color:{cl}">{ic} — {mk_name} <span style="color:#3a3550;font-weight:400;float:right">{n["time"]}</span></div><div class="note-body">{n["text"]}</div></div>',unsafe_allow_html=True)
 
-        # Whisper history
         if len(st.session_state["whisper_feed"])>1:
             st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.15em;color:#3a3550;margin:16px 0 8px">NIGEL\'S WHISPERS</div>',unsafe_allow_html=True)
             for w in st.session_state["whisper_feed"][:5]:
@@ -1279,9 +1261,12 @@ with t1:
             is_b="BUY" in bsig["signal"] or bsig["signal"]=="OVERSOLD"
             bdc="#1aff8a" if is_b else "#ff2d55"
             pfmt=f"${bp:,.0f}" if best_mk in ("BTC","ETH") else f"${bp:,.2f}"
+            bdiv=bsig.get("divergence",{})
             div_extra=""
-            if bsig["divergence"]["bull_div"] or bsig["divergence"]["bear_div"]:
-                div_extra=f'<div style="font-family:JetBrains Mono,monospace;font-size:10px;color:{"#1aff8a" if bsig["divergence"]["bull_div"] else "#ff2d55"};margin-top:6px">⬟ {bsig["divergence"]["desc"]}</div>'
+            if bdiv.get("bull_div"):  div_extra+=f'<div style="font-family:JetBrains Mono,monospace;font-size:10px;color:#1aff8a;margin-top:4px">⬟ {bdiv.get("desc","")}</div>'
+            if bdiv.get("bear_div"):  div_extra+=f'<div style="font-family:JetBrains Mono,monospace;font-size:10px;color:#ff2d55;margin-top:4px">⬟ {bdiv.get("desc","")}</div>'
+            if bdiv.get("macd_bull"): div_extra+=f'<div style="font-family:JetBrains Mono,monospace;font-size:10px;color:#1aff8a;margin-top:4px">⬟ {bdiv.get("macd_desc","")}</div>'
+            if bdiv.get("macd_bear"): div_extra+=f'<div style="font-family:JetBrains Mono,monospace;font-size:10px;color:#ff2d55;margin-top:4px">⬟ {bdiv.get("macd_desc","")}</div>'
             pats = bsig.get("patterns",[])
             pats_extra = "".join(f'<span class="pattern-tag">{p2}</span>' for p2 in pats[:3]) if pats else ""
             st.markdown(f"""
@@ -1295,7 +1280,7 @@ with t1:
                 <div style="color:#ff2d55">SL {f"${bsig['stop']:,.2f}" if bsig.get("stop") else "—"}</div>
                 <div style="color:#1aff8a">TP {f"${bsig['target']:,.2f}" if bsig.get("target") else "—"}</div>
               </div>
-              <div style="margin-top:10px">{''.join(f'<div style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:12px;color:#5a5570">· {r}</div>' for r in bsig.get("reasons",[])[:3])}</div>
+              <div style="margin-top:10px">{''.join(f'<div style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:12px;color:#5a5570">· {r}</div>' for r in bsig.get("reasons",[])[:4])}</div>
               {div_extra}
               <div style="margin-top:8px">{pats_extra}</div>
             </div>""",unsafe_allow_html=True)
@@ -1303,10 +1288,14 @@ with t1:
         rows=[]
         for mk in SEL:
             sig=market_signals[mk]
+            div=sig.get("divergence",{})
+            div_str = ""
+            if div.get("bull_div") or div.get("macd_bull"): div_str = "⬟ Bull"
+            elif div.get("bear_div") or div.get("macd_bear"): div_str = "⬟ Bear"
             rows.append({"Contract":mk,"Signal":sig["signal"],"Conf":f"{sig['conf']}%",
                 "RSI":f"{sig['rsi']:.0f}","StochK":f"{sig['stoch_k']:.0f}",
                 "BB%":f"{sig['bb_pct']:.0f}","Mom":f"{sig['mom']:+.1f}%","ATR%":f"{sig['atr_pct']:.2f}",
-                "Regime":sig['regime'].get('regime','?')})
+                "Regime":sig['regime'].get('regime','?'),"Divergence":div_str,"Patterns":"|".join(sig.get("patterns",[])[:2])})
         st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True)
 
 # ══════════════════════════════════════════════════════════════
@@ -1414,14 +1403,16 @@ with t3:
                 reasons_str=" · ".join(item.get("reasons",[])[:2])
                 pats_str=" · ".join(item.get("patterns",[])[:2])
                 div_str=""
-                if item.get("div_bull"): div_str='<span style="color:#1aff8a;font-size:9px"> ⬟ BULL DIV</span>'
-                elif item.get("div_bear"): div_str='<span style="color:#ff2d55;font-size:9px"> ⬟ BEAR DIV</span>'
+                if item.get("div_bull"):   div_str+='<span style="color:#1aff8a;font-size:9px"> ⬟ RSI BULL DIV</span>'
+                if item.get("div_bear"):   div_str+='<span style="color:#ff2d55;font-size:9px"> ⬟ RSI BEAR DIV</span>'
+                if item.get("macd_bull"):  div_str+='<span style="color:#1aff8a;font-size:9px"> ⬟ MACD BULL DIV</span>'
+                if item.get("macd_bear"):  div_str+='<span style="color:#ff2d55;font-size:9px"> ⬟ MACD BEAR DIV</span>'
                 reg_str=f'<span style="font-family:JetBrains Mono,monospace;font-size:9px;color:#5a5570;margin-left:8px">[{item.get("regime","?")}]</span>'
                 st.markdown(f"""
                 <div style="display:flex;gap:14px;align-items:flex-start;padding:10px 0;border-bottom:1px solid #12101e">
                   <div style="font-family:JetBrains Mono,monospace;font-size:9px;color:#3a3550;min-width:64px;padding-top:2px">{item['time']}</div>
                   <div style="flex:1">
-                    <div style="display:flex;align-items:center;gap:10px;margin-bottom:3px">
+                    <div style="display:flex;align-items:center;gap:10px;margin-bottom:3px;flex-wrap:wrap">
                       <span style="font-family:Cinzel,serif;font-weight:700;color:#fff">{item['mk']}</span>
                       <span class="badge {badge_cls}">{s}</span>
                       <span style="font-family:JetBrains Mono,monospace;font-size:10px;color:{dc}">{item['conf']}%</span>
@@ -1437,7 +1428,10 @@ with t3:
         if feed:
             tot=len(feed); longs=sum(1 for x in feed if "BUY" in x["signal"] or x["signal"]=="OVERSOLD")
             shorts=tot-longs; avg_conf=np.mean([x["conf"] for x in feed])
-            divs_bull=sum(1 for x in feed if x.get("div_bull")); divs_bear=sum(1 for x in feed if x.get("div_bear"))
+            divs_rsi_bull=sum(1 for x in feed if x.get("div_bull"))
+            divs_rsi_bear=sum(1 for x in feed if x.get("div_bear"))
+            divs_macd_bull=sum(1 for x in feed if x.get("macd_bull"))
+            divs_macd_bear=sum(1 for x in feed if x.get("macd_bear"))
             st.markdown(f"""
             <div class="panel panel-gold" style="margin-bottom:10px"><div class="stat-val" style="color:#00c4ff">{tot}</div><div class="stat-lbl">Total Signals</div></div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
@@ -1445,9 +1439,12 @@ with t3:
               <div class="panel panel-cr"><div class="stat-val" style="color:#ff2d55">{shorts}</div><div class="stat-lbl">Short</div></div>
             </div>
             <div class="panel" style="margin-bottom:10px"><div class="stat-val" style="color:#c9a84c">{avg_conf:.0f}%</div><div class="stat-lbl">Avg Conf</div></div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-              <div class="panel"><div class="stat-val" style="color:#1aff8a;font-size:1.2rem">{divs_bull}</div><div class="stat-lbl">Bull Divs</div></div>
-              <div class="panel"><div class="stat-val" style="color:#ff2d55;font-size:1.2rem">{divs_bear}</div><div class="stat-lbl">Bear Divs</div></div>
+            <div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.1em;color:#5a5570;margin:10px 0 6px">DIVERGENCE EVENTS</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+              <div class="panel"><div class="stat-val" style="color:#1aff8a;font-size:1.1rem">{divs_rsi_bull}</div><div class="stat-lbl">RSI Bull</div></div>
+              <div class="panel"><div class="stat-val" style="color:#ff2d55;font-size:1.1rem">{divs_rsi_bear}</div><div class="stat-lbl">RSI Bear</div></div>
+              <div class="panel"><div class="stat-val" style="color:#1aff8a;font-size:1.1rem">{divs_macd_bull}</div><div class="stat-lbl">MACD Bull</div></div>
+              <div class="panel"><div class="stat-val" style="color:#ff2d55;font-size:1.1rem">{divs_macd_bear}</div><div class="stat-lbl">MACD Bear</div></div>
             </div>""",unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════
@@ -1496,6 +1493,8 @@ with t4:
                 fig_ch.add_hline(y=sig_now["target"],line=dict(color="#1aff8a",width=1,dash="dash"),row=1,col=1)
             elif sig_now.get("signal") in ("SELL","STRONG SELL","OVERBOUGHT") and sig_now.get("stop"):
                 fig_ch.add_trace(go.Scatter(x=[idx[-1]],y=[closes_ch[-1]],mode="markers",marker=dict(symbol="triangle-down",size=14,color="#ff2d55"),name="SHORT"),row=1,col=1)
+                fig_ch.add_hline(y=sig_now["stop"],line=dict(color="#ff2d55",width=1,dash="dash"),row=1,col=1)
+                fig_ch.add_hline(y=sig_now["target"],line=dict(color="#1aff8a",width=1,dash="dash"),row=1,col=1)
         macd_s_ch=ema_series(macd_ch,9); macd_h_ch=[m-s for m,s in zip(macd_ch,macd_s_ch)]
         mc_colors=["rgba(26,255,138,0.7)" if v>=0 else "rgba(255,45,85,0.7)" for v in macd_h_ch]
         fig_ch.add_trace(go.Bar(x=idx,y=macd_h_ch,marker_color=mc_colors,showlegend=False),row=2,col=1)
@@ -1532,10 +1531,11 @@ with t5:
           <div style="font-family:JetBrains Mono,monospace;font-size:10px;color:#5a5570;margin-top:4px">FEAR / GREED</div>
           <div style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:11px;color:#5a5570">{fg_label}</div>
         </div>
-        <div style="text-align:center;min-width:100px">
+        <div style="text-align:center;min-width:120px">
           <div style="font-family:Cinzel,serif;font-size:2.4rem;font-weight:900;line-height:1;color:{sm_color}">{sm_score}</div>
           <div style="font-family:JetBrains Mono,monospace;font-size:10px;color:#5a5570;margin-top:4px">INST. FLOW</div>
           <div style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:11px;color:#5a5570">{sm_label}</div>
+          <div style="font-family:JetBrains Mono,monospace;font-size:9px;color:#3a3550;margin-top:4px">{" · ".join(sm_sessions) if sm_sessions else "Off Hours"}</div>
         </div>
       </div>
     </div>""",unsafe_allow_html=True)
@@ -1545,6 +1545,10 @@ with t5:
         dd=per.get(mk,{}); sc=dd.get("score",0)
         dc="#1aff8a" if sc>=70 else "#c9a84c" if sc>=45 else "#ff2d55"
         sig=market_signals.get(mk,{})
+        div=sig.get("divergence",{})
+        div_note=""
+        if div.get("bull_div") or div.get("macd_bull"): div_note='<div style="font-size:9px;color:#1aff8a;margin-top:4px">⬟ Divergence bullish</div>'
+        elif div.get("bear_div") or div.get("macd_bear"): div_note='<div style="font-size:9px;color:#ff2d55;margin-top:4px">⬟ Divergence bearish</div>'
         with col:
             st.markdown(f"""
             <div class="panel" style="margin-bottom:12px;border-top:1px solid {dc}">
@@ -1562,6 +1566,7 @@ with t5:
               <div style="margin-top:8px;font-family:JetBrains Mono,monospace;font-size:9px;color:#5a5570">
                 {sig.get("regime",{}).get("regime","?")} · ADX {sig.get("regime",{}).get("adx_lite",0):.0f}
               </div>
+              {div_note}
               <div style="margin-top:6px;border-top:1px solid #12101e;padding-top:6px">
                 {''.join(f'<div style="font-family:JetBrains Mono,monospace;font-size:9px;color:#{"1aff8a" if "+" in n else "ff2d55" if "−" in n else "5a5570"};margin-bottom:2px">{n}</div>' for n in dd.get("notes",[])[:4])}
               </div>
@@ -1579,7 +1584,8 @@ with t5:
     matrix=[]
     for mk in SEL:
         sig=market_signals.get(mk,{}); p=live_prices.get(mk)
-        matrix.append({"Contract":mk,"Price":f"${p:,.2f}" if p else "—","Signal":sig.get("signal","HOLD"),"Conf":f"{sig.get('conf',0)}%","RSI":f"{sig.get('rsi',50):.1f}","StochK":f"{sig.get('stoch_k',50):.0f}","BB%":f"{sig.get('bb_pct',50):.0f}","ATR%":f"{sig.get('atr_pct',0):.2f}","Mom5%":f"{sig.get('mom',0):+.2f}","VolSurge":f"{sig.get('vol_surge',1):.2f}×","Regime":sig.get("regime",{}).get("regime","?"),"BullDiv":sig["divergence"]["bull_div"],"BearDiv":sig["divergence"]["bear_div"],"Blocked":sig.get("rule_block",False)})
+        div=sig.get("divergence",{})
+        matrix.append({"Contract":mk,"Price":f"${p:,.2f}" if p else "—","Signal":sig.get("signal","HOLD"),"Conf":f"{sig.get('conf',0)}%","RSI":f"{sig.get('rsi',50):.1f}","StochK":f"{sig.get('stoch_k',50):.0f}","BB%":f"{sig.get('bb_pct',50):.0f}","ATR%":f"{sig.get('atr_pct',0):.2f}","Mom5%":f"{sig.get('mom',0):+.2f}","VolSurge":f"{sig.get('vol_surge',1):.2f}×","Regime":sig.get("regime",{}).get("regime","?"),"RSI_Div":"Bull" if div.get("bull_div") else "Bear" if div.get("bear_div") else "—","MACD_Div":"Bull" if div.get("macd_bull") else "Bear" if div.get("macd_bear") else "—","Blocked":sig.get("rule_block",False)})
     st.dataframe(pd.DataFrame(matrix),use_container_width=True,hide_index=True)
 
 # ══════════════════════════════════════════════════════════════
@@ -1693,9 +1699,9 @@ with t8:
             qa_cols=st.columns(4)
             qa_prompt=None
             if qa_cols[0].button("📊 Full Brief"):   qa_prompt="Give me a full market brief. For each instrument: exact signal, key price levels, stop and target, and whether you'd trade it right now. Be specific with all numbers."
-            if qa_cols[1].button("⚡ Best Trade"):   qa_prompt="Which single instrument has the highest probability setup right now? Walk me through entry, stop, target, and the three most compelling technical reasons."
-            if qa_cols[2].button("⚠️ Risk Check"):   qa_prompt="Assess the risk environment. Are there dangerous setups or conflicting signals? What's the biggest risk to an active position?"
-            if qa_cols[3].button("🧬 Divergence"):   qa_prompt="Review all divergence signals detected. Which ones are most compelling and what trade do they suggest?"
+            if qa_cols[1].button("⚡ Best Trade"):   qa_prompt="Which single instrument has the highest probability setup right now? Walk me through entry, stop, target, and the three most compelling technical reasons. Include any divergence signals."
+            if qa_cols[2].button("⚠️ Risk Check"):   qa_prompt="Assess the risk environment. Are there dangerous setups or conflicting signals? What's the biggest risk to an active position? Check regime and volatility data."
+            if qa_cols[3].button("🧬 Divergence"):   qa_prompt="Review all RSI and MACD divergence signals detected. Which ones are most compelling? Do RSI and MACD divergence align on any instrument (confluence)? What trade do they suggest?"
             custom=st.text_area("Your question to Nigel:",placeholder="e.g. Should I be long or short BTC right now?",height=80,key="ai_q")
             ask=st.button("Ask Nigel →",type="primary")
             final_q=qa_prompt or (custom if ask and custom.strip() else None)
@@ -1717,24 +1723,21 @@ with t8:
             st.code(build_ai_context(market_signals,live_prices,diag,st.session_state.get("bt_cache")),language="text")
 
 # ══════════════════════════════════════════════════════════════
-# TAB 9 — EDGE TOOLS (Hidden Gifts Dashboard)
+# TAB 9 — EDGE TOOLS (All 10 Gifts fully rendered)
 # ══════════════════════════════════════════════════════════════
 with t9:
     st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.2em;color:#c9a84c;margin-bottom:6px">EDGE TOOLS</div>',unsafe_allow_html=True)
-    st.markdown('<div style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:14px;color:#5a5570;margin-bottom:24px">Advanced analytics not found in ordinary platforms.</div>',unsafe_allow_html=True)
+    st.markdown('<div style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:14px;color:#5a5570;margin-bottom:24px">Advanced analytics — the hidden gifts of NIGEL.</div>',unsafe_allow_html=True)
 
-    et1,et2=st.tabs(["RISK OF RUIN","CORRELATION MATRIX"])
+    et1,et2,et3,et4 = st.tabs(["RISK OF RUIN","CORRELATION MATRIX","DIVERGENCE REPORT","REGIME & VOLATILITY"])
 
-    # ── RISK OF RUIN ─────────────────────────────────────────
+    # ── GIFT 5: RISK OF RUIN ──────────────────────────────────
     with et1:
-        st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.15em;color:#c9a84c;margin-bottom:16px">KELLY CRITERION & RISK-OF-RUIN CALCULATOR</div>',unsafe_allow_html=True)
+        st.markdown('<div class="gift-badge">◈ GIFT V — KELLY CRITERION & RISK-OF-RUIN</div>',unsafe_allow_html=True)
         ror_cols=st.columns([1,1,1,2])
-        with ror_cols[0]:
-            ror_wr=st.slider("Win Rate %",20,80,50,1,key="ror_wr")
-        with ror_cols[1]:
-            ror_rr=st.slider("Reward : Risk",0.5,5.0,2.0,0.25,key="ror_rr")
-        with ror_cols[2]:
-            ror_risk=st.slider("Risk per Trade %",0.1,5.0,1.0,0.1,key="ror_risk")
+        with ror_cols[0]: ror_wr=st.slider("Win Rate %",20,80,50,1,key="ror_wr")
+        with ror_cols[1]: ror_rr=st.slider("Reward : Risk",0.5,5.0,2.0,0.25,key="ror_rr")
+        with ror_cols[2]: ror_risk=st.slider("Risk per Trade %",0.1,5.0,1.0,0.1,key="ror_risk")
         ror=risk_of_ruin(ror_wr,ror_rr,ror_risk/100)
         edge_c="#1aff8a" if ror["edge"]>0 else "#ff2d55"
         ror_c="#1aff8a" if ror["ror"]<5 else "#c9a84c" if ror["ror"]<20 else "#ff2d55"
@@ -1750,31 +1753,42 @@ with t9:
               </div>
               {'<div style="font-family:Cinzel,serif;font-size:10px;color:#ff2d55;margin-top:12px;letter-spacing:.1em">⚠ RISKING ABOVE HALF KELLY — reduce position size</div>' if kelly_warn else '<div style="font-family:Cinzel,serif;font-size:10px;color:#1aff8a;margin-top:12px;letter-spacing:.1em">✓ POSITION SIZE WITHIN KELLY BOUNDS</div>'}
             </div>""",unsafe_allow_html=True)
-        # ROR surface (win rate vs risk %)
+
         st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.15em;color:#5a5570;margin:20px 0 10px">RISK OF RUIN SURFACE (win rate vs position size)</div>',unsafe_allow_html=True)
         wr_range=list(range(30,75,5)); risk_range=[0.5,1.0,1.5,2.0,3.0,5.0]
         z_data=[[risk_of_ruin(wr,ror_rr,r/100)["ror"] for r in risk_range] for wr in wr_range]
-        fig_ror=go.Figure(go.Heatmap(z=z_data,x=[f"{r}%" for r in risk_range],y=[f"{w}%" for w in wr_range],colorscale=[[0,"#1aff8a"],[0.3,"#c9a84c"],[0.7,"#ff2d55"],[1,"#8b0000"]],showscale=True,zmin=0,zmax=50,text=[[f"{v:.0f}%" for v in row] for row in z_data],texttemplate="%{text}",textfont=dict(family="JetBrains Mono",size=9)))
-        fig_ror.update_layout(height=260,template="plotly_dark",paper_bgcolor="#05040a",plot_bgcolor="#09080f",margin=dict(l=0,r=0,t=10,b=0),xaxis=dict(title="Risk Per Trade",gridcolor="#12101e",titlefont=dict(family="Cinzel",size=9,color="#5a5570")),yaxis=dict(title="Win Rate",gridcolor="#12101e",titlefont=dict(family="Cinzel",size=9,color="#5a5570")),font=dict(family="JetBrains Mono",size=9,color="#5a5570"))
+        fig_ror=go.Figure(go.Heatmap(
+            z=z_data,x=[f"{r}%" for r in risk_range],y=[f"{w}%" for w in wr_range],
+            colorscale=[[0,"#1aff8a"],[0.3,"#c9a84c"],[0.7,"#ff2d55"],[1,"#8b0000"]],
+            showscale=True,zmin=0,zmax=50,
+            text=[[f"{v:.0f}%" for v in row] for row in z_data],
+            texttemplate="%{text}",textfont=dict(family="JetBrains Mono",size=9)
+        ))
+        # FIXED: use title dict instead of deprecated titlefont
+        fig_ror.update_layout(
+            height=260,template="plotly_dark",paper_bgcolor="#05040a",plot_bgcolor="#09080f",
+            margin=dict(l=0,r=0,t=10,b=0),
+            xaxis=dict(title=dict(text="Risk Per Trade",font=dict(family="Cinzel",size=9,color="#5a5570")),gridcolor="#12101e"),
+            yaxis=dict(title=dict(text="Win Rate",font=dict(family="Cinzel",size=9,color="#5a5570")),gridcolor="#12101e"),
+            font=dict(family="JetBrains Mono",size=9,color="#5a5570")
+        )
         st.plotly_chart(fig_ror,use_container_width=True,key="ror_surface")
 
-        # Per-trader Kelly assessment
         st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.15em;color:#5a5570;margin:20px 0 10px">DESK KELLY ASSESSMENT</div>',unsafe_allow_html=True)
         for tr in TRADERS:
-            wins=sum(1 for t in tr["trades"] if t["result"]=="win"); tot=len(tr["trades"])
-            if tot<3:
-                st.markdown(f'<div style="font-family:JetBrains Mono,monospace;font-size:10px;color:#3a3550;margin-bottom:4px">{tr["name"]}: insufficient trades ({tot}) for Kelly</div>',unsafe_allow_html=True)
+            wins_t=sum(1 for t in tr["trades"] if t["result"]=="win"); tot_t=len(tr["trades"])
+            if tot_t<3:
+                st.markdown(f'<div style="font-family:JetBrains Mono,monospace;font-size:10px;color:#3a3550;margin-bottom:4px">{tr["name"]}: insufficient trades ({tot_t}) for Kelly assessment</div>',unsafe_allow_html=True)
                 continue
-            wr_tr=wins/tot*100
+            wr_tr=wins_t/tot_t*100
             tr_ror=risk_of_ruin(wr_tr,tr["rr"],tr["risk_pct"])
             cc="#1aff8a" if tr_ror["edge"]>0 else "#ff2d55"
             st.markdown(f'<div style="font-family:JetBrains Mono,monospace;font-size:10px;margin-bottom:6px;padding:8px 12px;background:#09080f;border:1px solid #12101e;border-radius:1px"><span style="color:#c9a84c;margin-right:12px">{tr["emoji"]} {tr["name"]}</span> WR {wr_tr:.0f}% · Edge <span style="color:{cc}">{tr_ror["edge"]:+.1f}%</span> · Kelly {tr_ror["kelly"]:.2f}% · ½K {tr_ror["half_kelly"]:.2f}% · Using {tr_ror["using_pct"]:.2f}% <span style="color:{"#ff2d55" if tr_ror["vs_half_kelly"]=="OVER" else "#1aff8a"}">[{tr_ror["vs_half_kelly"]} HALF-KELLY]</span> · RoR {tr_ror["ror"]:.1f}%</div>',unsafe_allow_html=True)
 
-    # ── CORRELATION MATRIX ───────────────────────────────────
+    # ── GIFT 10: CORRELATION MATRIX ───────────────────────────
     with et2:
-        st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.15em;color:#c9a84c;margin-bottom:16px">CROSS-INSTRUMENT CORRELATION</div>',unsafe_allow_html=True)
+        st.markdown('<div class="gift-badge">◈ GIFT X — CROSS-INSTRUMENT CORRELATION</div>',unsafe_allow_html=True)
         st.markdown('<div style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:13px;color:#5a5570;margin-bottom:16px">Daily return correlations across your selected instruments. High correlation = diversification is illusory.</div>',unsafe_allow_html=True)
-        # Build returns matrix
         ret_data={}
         for mk in SEL:
             closes=raw_data[mk]["closes"]
@@ -1786,47 +1800,174 @@ with t9:
             ret_df=pd.DataFrame({k:v[-min_len:] for k,v in ret_data.items()})
             corr=ret_df.corr()
             z=corr.values.tolist(); labels=list(corr.columns)
-            fig_corr=go.Figure(go.Heatmap(z=z,x=labels,y=labels,colorscale=[[0,"#ff2d55"],[0.5,"#09080f"],[1,"#1aff8a"]],zmin=-1,zmax=1,text=[[f"{v:.2f}" for v in row] for row in z],texttemplate="%{text}",textfont=dict(family="JetBrains Mono",size=11,color="#d4cfc0")))
-            fig_corr.update_layout(height=320,template="plotly_dark",paper_bgcolor="#05040a",plot_bgcolor="#09080f",margin=dict(l=0,r=0,t=10,b=0),font=dict(family="JetBrains Mono",size=10,color="#5a5570"),xaxis=dict(gridcolor="#12101e"),yaxis=dict(gridcolor="#12101e"))
+            fig_corr=go.Figure(go.Heatmap(
+                z=z,x=labels,y=labels,
+                colorscale=[[0,"#ff2d55"],[0.5,"#09080f"],[1,"#1aff8a"]],
+                zmin=-1,zmax=1,
+                text=[[f"{v:.2f}" for v in row] for row in z],
+                texttemplate="%{text}",
+                textfont=dict(family="JetBrains Mono",size=11,color="#d4cfc0")
+            ))
+            fig_corr.update_layout(
+                height=320,template="plotly_dark",paper_bgcolor="#05040a",plot_bgcolor="#09080f",
+                margin=dict(l=0,r=0,t=10,b=0),
+                font=dict(family="JetBrains Mono",size=10,color="#5a5570"),
+                xaxis=dict(gridcolor="#12101e"),yaxis=dict(gridcolor="#12101e")
+            )
             st.plotly_chart(fig_corr,use_container_width=True,key="corr_matrix")
-            # Insights
             st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.12em;color:#5a5570;margin:12px 0 8px">CORRELATION INSIGHTS</div>',unsafe_allow_html=True)
+            found_any = False
             for i,a in enumerate(labels):
                 for j,b in enumerate(labels):
                     if j<=i: continue
                     cv=corr.loc[a,b]
-                    if abs(cv)>0.65:
+                    if abs(cv)>0.55:
+                        found_any = True
                         warn_c="#ff2d55" if cv>0 else "#00c4ff"
-                        note=f"High positive correlation ({cv:.2f}) — holding both {a}+{b} simultaneously offers limited diversification." if cv>0 else f"Negative correlation ({cv:.2f}) — {a} and {b} move oppositely. Natural hedge."
+                        note=f"High positive correlation ({cv:.2f}) — {a}+{b} offer limited diversification." if cv>0 else f"Negative correlation ({cv:.2f}) — {a} and {b} act as natural hedge."
                         st.markdown(f'<div style="font-family:JetBrains Mono,monospace;font-size:10px;padding:6px 12px;background:#09080f;border-left:2px solid {warn_c};margin-bottom:4px;color:{warn_c}">{note}</div>',unsafe_allow_html=True)
+            if not found_any:
+                st.markdown('<div class="nigel-note note-info"><div class="note-body">No strong correlations detected. Portfolio diversification appears healthy.</div></div>',unsafe_allow_html=True)
+            # Rolling correlation chart
+            if len(labels)>=2 and min_len>=20:
+                st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.12em;color:#5a5570;margin:16px 0 8px">30-DAY ROLLING CORRELATION — TOP PAIR</div>',unsafe_allow_html=True)
+                best_pair = None; best_abs = 0
+                for i,a in enumerate(labels):
+                    for j,b in enumerate(labels):
+                        if j<=i: continue
+                        if abs(corr.loc[a,b]) > best_abs: best_abs=abs(corr.loc[a,b]); best_pair=(a,b)
+                if best_pair:
+                    a,b = best_pair
+                    roll_corr = ret_df[a].rolling(30).corr(ret_df[b]).dropna()
+                    fig_rc=go.Figure()
+                    fig_rc.add_trace(go.Scatter(y=roll_corr.values,line=dict(color="#00c4ff",width=2),name=f"{a}↔{b}"))
+                    fig_rc.add_hline(y=0,line=dict(color="#3a3550",width=1,dash="dot"))
+                    fig_rc.add_hline(y=0.7,line=dict(color="rgba(255,45,85,0.3)",width=1,dash="dash"))
+                    fig_rc.add_hline(y=-0.7,line=dict(color="rgba(0,196,255,0.3)",width=1,dash="dash"))
+                    fig_rc.update_layout(height=160,template="plotly_dark",paper_bgcolor="#05040a",plot_bgcolor="#09080f",margin=dict(l=0,r=0,t=10,b=0),showlegend=True,font=dict(family="JetBrains Mono",size=9,color="#5a5570"),xaxis=dict(gridcolor="#12101e"),yaxis=dict(gridcolor="#12101e",range=[-1,1]),title=dict(text=f"Rolling 30D Correlation: {a} / {b}",font=dict(family="Cinzel",color="#5a5570",size=10)))
+                    st.plotly_chart(fig_rc,use_container_width=True,key="roll_corr")
         else:
             st.info("Select at least 2 instruments to see correlations.")
 
-    # ── REGIME + VOLATILITY SUMMARY ──────────────────────────
-    st.markdown("<br>",unsafe_allow_html=True)
-    st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.15em;color:#c9a84c;margin:0 0 12px">REGIME & VOLATILITY OVERVIEW</div>',unsafe_allow_html=True)
-    reg_cols=st.columns(len(SEL))
-    for col,mk in zip(reg_cols,SEL):
-        sig=market_signals.get(mk,{}); reg=sig.get("regime",{}); vr=sig.get("vol_regime",{})
-        reg_name=reg.get("regime","?"); adx=reg.get("adx_lite",0); bbw=reg.get("bb_width_pct",0)
-        rv=vr.get("rv",0); rv_rank=vr.get("rv_pct_rank",50); vfc=vr.get("forecast","STABLE")
-        rc="badge-regime-trend" if reg_name=="TRENDING" else "badge-regime-range" if reg_name=="RANGING" else "badge-regime-vol"
-        vfc_c="#1aff8a" if vfc=="CONTRACTING" else "#ff2d55" if vfc=="EXPANDING" else "#5a5570"
-        with col:
+    # ── GIFTS 1+2: DIVERGENCE REPORT ─────────────────────────
+    with et3:
+        st.markdown('<div class="gift-badge">◈ GIFT I+II — REGIME DETECTOR & DIVERGENCE ENGINE</div>',unsafe_allow_html=True)
+        st.markdown('<div style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:14px;color:#5a5570;margin-bottom:20px">Full divergence and regime analysis across all active instruments.</div>',unsafe_allow_html=True)
+
+        for mk in SEL:
+            sig = market_signals.get(mk, {})
+            div = sig.get("divergence", {})
+            reg = sig.get("regime", {})
+            pats = sig.get("patterns", [])
+            vr = sig.get("vol_regime", {})
+            reg_name = reg.get("regime","?")
+            reg_cls = "badge-regime-trend" if reg_name=="TRENDING" else "badge-regime-range" if reg_name=="RANGING" else "badge-regime-vol"
+
+            any_div = div.get("bull_div") or div.get("bear_div") or div.get("macd_bull") or div.get("macd_bear")
+            border_c = "#1aff8a" if (div.get("bull_div") or div.get("macd_bull")) else "#ff2d55" if (div.get("bear_div") or div.get("macd_bear")) else "#3a3550"
+
+            div_blocks = ""
+            if div.get("bull_div"):   div_blocks += f'<div class="divergence-bull" style="margin-bottom:4px">⬟ RSI: {div.get("desc","")}</div>'
+            if div.get("bear_div"):   div_blocks += f'<div class="divergence-bear" style="margin-bottom:4px">⬟ RSI: {div.get("desc","")}</div>'
+            if div.get("macd_bull"):  div_blocks += f'<div class="macd-bull" style="margin-bottom:4px">⬟ MACD: {div.get("macd_desc","")}</div>'
+            if div.get("macd_bear"):  div_blocks += f'<div class="macd-bear" style="margin-bottom:4px">⬟ MACD: {div.get("macd_desc","")}</div>'
+            if not any_div:           div_blocks  = '<div style="font-family:JetBrains Mono,monospace;font-size:10px;color:#3a3550">No divergence detected on current lookback</div>'
+
+            confluence = (div.get("bull_div") and div.get("macd_bull")) or (div.get("bear_div") and div.get("macd_bear"))
+            conf_badge = f'<span style="font-family:Cinzel,serif;font-size:9px;color:#c9a84c;letter-spacing:.1em;margin-left:10px">◈ CONFLUENCE</span>' if confluence else ""
+
+            pats_html = "".join(f'<span class="pattern-tag">{p2}</span>' for p2 in pats) if pats else '<span style="font-family:JetBrains Mono,monospace;font-size:9px;color:#3a3550">None detected</span>'
+
             st.markdown(f"""
-            <div class="panel" style="margin-bottom:8px">
-              <div style="font-family:Cinzel,serif;font-weight:700;color:#fff;margin-bottom:8px">{mk}</div>
-              <span class="badge {rc}">{reg_name}</span>
-              <div style="font-family:JetBrains Mono,monospace;font-size:10px;margin-top:8px;color:#5a5570">
-                ADX {adx:.0f} · BB Width {bbw:.1f}%<br>
-                RV {rv:.0f}% ann · Pctile {rv_rank:.0f}<br>
-                Vol <span style="color:{vfc_c}">{vfc}</span>
+            <div style="background:var(--obsidian2);border:1px solid {border_c}33;border-left:2px solid {border_c};border-radius:2px;padding:16px 20px;margin-bottom:12px">
+              <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+                <div style="font-family:Cinzel,serif;font-size:1.2rem;font-weight:700;color:#fff">{mk}</div>
+                <span class="badge {reg_cls}">{reg_name}</span>
+                <span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#5a5570">ADX {reg.get("adx_lite",0):.0f} · BB Width {reg.get("bb_width_pct",0):.1f}% · ATR Pctile {reg.get("atr_pct_rank",50):.0f}</span>
+                {conf_badge}
               </div>
-            </div>""",unsafe_allow_html=True)
-        # Pattern tags
-        pats=sig.get("patterns",[])
-        if pats:
-            col.markdown("".join(f'<span class="pattern-tag">{p2}</span>' for p2 in pats),unsafe_allow_html=True)
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+                <div>
+                  <div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.1em;color:#5a5570;margin-bottom:8px">DIVERGENCE SIGNALS</div>
+                  {div_blocks}
+                </div>
+                <div>
+                  <div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.1em;color:#5a5570;margin-bottom:8px">PRICE PATTERNS</div>
+                  <div style="margin-bottom:8px">{pats_html}</div>
+                  <div style="font-family:JetBrains Mono,monospace;font-size:9px;color:#5a5570;margin-top:8px">
+                    RV {vr.get("rv",0):.0f}% ann · Pctile {vr.get("rv_pct_rank",50):.0f} · 
+                    <span style="color:{"#1aff8a" if vr.get("forecast")=="CONTRACTING" else "#ff2d55" if vr.get("forecast")=="EXPANDING" else "#5a5570"}">{vr.get("forecast","STABLE")}</span>
+                  </div>
+                </div>
+              </div>
+            </div>""", unsafe_allow_html=True)
+
+    # ── GIFTS 1+6: REGIME & VOLATILITY ───────────────────────
+    with et4:
+        st.markdown('<div class="gift-badge">◈ GIFT VI — VOLATILITY FORECAST (GARCH-LITE)</div>',unsafe_allow_html=True)
+        reg_cols=st.columns(len(SEL))
+        for col,mk in zip(reg_cols,SEL):
+            sig=market_signals.get(mk,{}); reg=sig.get("regime",{}); vr=sig.get("vol_regime",{})
+            reg_name=reg.get("regime","?"); adx=reg.get("adx_lite",0); bbw=reg.get("bb_width_pct",0)
+            rv=vr.get("rv",0); rv_rank=vr.get("rv_pct_rank",50); vfc=vr.get("forecast","STABLE")
+            rv_5d=vr.get("rv_5d",0)
+            rc="badge-regime-trend" if reg_name=="TRENDING" else "badge-regime-range" if reg_name=="RANGING" else "badge-regime-vol"
+            vfc_c="#1aff8a" if vfc=="CONTRACTING" else "#ff2d55" if vfc=="EXPANDING" else "#5a5570"
+            pats=sig.get("patterns",[])
+            with col:
+                st.markdown(f"""
+                <div class="panel" style="margin-bottom:8px">
+                  <div style="font-family:Cinzel,serif;font-weight:700;color:#fff;margin-bottom:8px">{mk}</div>
+                  <span class="badge {rc}">{reg_name}</span>
+                  <div style="font-family:JetBrains Mono,monospace;font-size:10px;margin-top:10px;color:#5a5570;line-height:1.8">
+                    ADX <span style="color:#d4cfc0">{adx:.0f}</span><br>
+                    BB Width <span style="color:#d4cfc0">{bbw:.1f}%</span><br>
+                    RV (ann) <span style="color:#d4cfc0">{rv:.0f}%</span><br>
+                    RV 5D <span style="color:#d4cfc0">{rv_5d:.0f}%</span><br>
+                    Percentile <span style="color:#d4cfc0">{rv_rank:.0f}</span><br>
+                    Forecast <span style="color:{vfc_c};font-weight:700">{vfc}</span>
+                  </div>
+                </div>""",unsafe_allow_html=True)
+                if pats:
+                    col.markdown("".join(f'<span class="pattern-tag">{p2}</span>' for p2 in pats),unsafe_allow_html=True)
+
+        # Volatility comparison chart
+        st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.15em;color:#5a5570;margin:20px 0 10px">REALIZED VOLATILITY COMPARISON</div>',unsafe_allow_html=True)
+        fig_vol=go.Figure()
+        colors_vol={"BTC":"#f7931a","ETH":"#627eea","NQ":"#378ADD","GOLD":"#c9a84c","ES":"#1aff8a","CL":"#ff6644"}
+        for mk in SEL:
+            closes=raw_data[mk]["closes"]
+            if len(closes)>=25:
+                rets=[math.log(closes[i]/closes[i-1]) for i in range(1,len(closes))]
+                roll_rv=[]
+                for i in range(20,len(rets)+1):
+                    roll_rv.append(np.std(rets[i-20:i])*math.sqrt(252)*100)
+                fig_vol.add_trace(go.Scatter(y=roll_rv,mode="lines",name=mk,line=dict(color=colors_vol.get(mk,"#c9a84c"),width=2)))
+        fig_vol.update_layout(height=220,template="plotly_dark",paper_bgcolor="#05040a",plot_bgcolor="#09080f",margin=dict(l=0,r=0,t=10,b=0),font=dict(family="JetBrains Mono",size=9,color="#5a5570"),xaxis=dict(gridcolor="#12101e",title=dict(text="Days",font=dict(family="Cinzel",size=9,color="#5a5570"))),yaxis=dict(gridcolor="#12101e",title=dict(text="RV % (ann)",font=dict(family="Cinzel",size=9,color="#5a5570"))),legend=dict(orientation="h",font=dict(size=9)),title=dict(text="20-Day Rolling Realized Volatility",font=dict(family="Cinzel",color="#5a5570",size=10)))
+        st.plotly_chart(fig_vol,use_container_width=True,key="vol_chart")
+
+        # Smart Money Clock expanded view
+        st.markdown('<div class="gift-badge" style="margin-top:16px">◈ GIFT IV — SMART MONEY CLOCK</div>',unsafe_allow_html=True)
+        sm_score_d, sm_label_d, sm_sessions_d = smart_money_clock()
+        sm_c_d="#1aff8a" if sm_score_d>=75 else "#c9a84c" if sm_score_d>=50 else "#5a5570"
+        utc_now=datetime.now(ZoneInfo("UTC")); h_now=utc_now.hour+utc_now.minute/60
+
+        # Build hourly score bar
+        hour_scores=[]
+        score_map_full={(7,8):55,(8,9):85,(9,10):90,(10,11):80,(11,12):65,(12,13):70,(13,14):95,(14,15):95,(15,16):85,(16,17):75,(17,18):60,(18,19):45,(19,20):35,(20,21):30,(21,22):40,(22,23):55,(23,24):60,(0,1):65,(1,2):70,(2,3):65,(3,4):55,(4,5):45,(5,6):40,(6,7):45}
+        for hr in range(24):
+            s=25
+            for (h1,h2),sv in score_map_full.items():
+                if h1<=hr<h2: s=sv; break
+            hour_scores.append(s)
+
+        bar_colors=["rgba(201,168,76,0.8)" if i==int(h_now) else "#1aff8a" if hour_scores[i]>=85 else "#c9a84c" if hour_scores[i]>=60 else "#3a3550" for i in range(24)]
+        fig_sm=go.Figure(go.Bar(x=list(range(24)),y=hour_scores,marker_color=bar_colors,text=[f"{s}" for s in hour_scores],textposition="outside",textfont=dict(family="JetBrains Mono",size=8,color="#5a5570")))
+        fig_sm.add_hline(y=85,line=dict(color="rgba(26,255,138,0.3)",width=1,dash="dash"))
+        fig_sm.add_hline(y=60,line=dict(color="rgba(201,168,76,0.3)",width=1,dash="dash"))
+        fig_sm.update_layout(height=200,template="plotly_dark",paper_bgcolor="#05040a",plot_bgcolor="#09080f",margin=dict(l=0,r=0,t=20,b=0),font=dict(family="JetBrains Mono",size=9,color="#5a5570"),xaxis=dict(gridcolor="#12101e",tickmode="array",tickvals=list(range(24)),ticktext=[f"{h:02d}" for h in range(24)],title=dict(text="UTC Hour",font=dict(family="Cinzel",size=9,color="#5a5570"))),yaxis=dict(gridcolor="#12101e",range=[0,110]),title=dict(text=f"Institutional Flow Score by Hour (UTC) — Now: {sm_score_d} [{sm_label_d}]",font=dict(family="Cinzel",color="#5a5570",size=10)),bargap=0.1)
+        st.plotly_chart(fig_sm,use_container_width=True,key="sm_clock")
+        st.markdown(f'<div style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:13px;color:#5a5570;margin-top:8px">Active now: {" · ".join(sm_sessions_d) if sm_sessions_d else "Off-Hours"} · Gold bar = current UTC hour · Green = peak institutional windows</div>',unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════
 # ALWAYS-ON BAR + AUTO REFRESH
@@ -1839,7 +1980,7 @@ if st.session_state["always_on"]:
     shield_str=" · ⚠ SHIELD ACTIVE" if shield_active else ""
     st.markdown(f"""
     <div class="always-on-bar">
-      <div><span class="live-dot"></span>NIGEL v2.0 · ALWAYS ON · {datetime.now().strftime("%H:%M:%S")}{shield_str}</div>
+      <div><span class="live-dot"></span>NIGEL v3.0 · ALWAYS ON · {datetime.now().strftime("%H:%M:%S")}{shield_str}</div>
       <div style="font-family:Cinzel,serif;letter-spacing:.1em">NEXT REFRESH IN {remaining:.0f}s</div>
       <div style="color:#c9a84c">{" · ".join(n for n,_ in sessions_now)}</div>
     </div>
