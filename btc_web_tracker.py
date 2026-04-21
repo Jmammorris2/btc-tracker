@@ -611,8 +611,11 @@ def maybe_trade(trader, sym, sig_data, price):
     if trader["wait_strong"] and conf < 70: return
     if conf < min_c: return
     if sig == "WATCH": return
-    # Close open position if direction flipped
+    # Sanitize stale/incomplete open_pos from old session state
     op = trader.get("open_pos")
+    if op and not all(k in op for k in ("sym","dir","entry","size","conf")):
+        trader["open_pos"] = None; op = None
+    # Close open position if direction flipped
     if op and op["sym"] == sym:
         if (op["dir"] == "LONG" and sig == "SHORT") or (op["dir"] == "SHORT" and sig == "LONG"):
             entry = op["entry"]; size = op["size"]
@@ -1014,8 +1017,10 @@ def main():
                   </div>
                 """, unsafe_allow_html=True)
 
-                # Open position
+                # Open position — guard against stale state missing keys
                 op = tr.get("open_pos")
+                if op and not all(k in op for k in ("sym","dir","entry","conf")):
+                    tr["open_pos"] = None; op = None
                 if op:
                     current_price = market_data.get(op["sym"],{}).get("price", op["entry"])
                     unrealized = (current_price - op["entry"])/op["entry"] if op["dir"]=="LONG" else (op["entry"]-current_price)/op["entry"]
