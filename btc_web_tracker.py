@@ -1,18 +1,24 @@
 """
-NIGEL — Private Trading Intelligence  v5.1
-Ultra-luxury AI paper-trading platform with adaptive desks + Stats Lab.
+NIGEL — Private Trading Intelligence  v5.2
+Ultra-luxury AI paper-trading platform — adaptive desks + Stats Lab + Smart Money Footprints.
 Run: streamlit run nigel.py
 
 NOTE: This is a SIMULATION. Trades are paper trades against live market
 data. No orders execute on any real exchange. For research / learning only.
 
+CHANGES v5.2 (vs v5.1):
+  ◈ NEW: Rejection Block detector — wick-dominant candles where institutions absorbed
+  ◈ NEW: Liquidity Sweep detector — stops swept then price reversed
+  ◈ NEW: SMT Divergence — cross-asset disagreement (BTC/ETH, NQ/ES)
+  ◈ NEW: Smart Money Footprints panel in PULSE tab
+  ◈ TQS now bonuses up to +15 (RB) + +15 (sweep) + +10 (SMT) when aligned
+  ◈ Penalties when footprints conflict with signal direction
+
 CHANGES v5.1 (vs v5.0):
-  ◈ NEW: Liquidity Theory module — Volume Profile, HVN/LVN, POC detection
-  ◈ NEW: Kolmogorov-Smirnov regime-shift test — flags stale fitness scores
-  ◈ NEW: Order Flow Imbalance (BTC/ETH) — Binance aggTrade aggressor analysis
-  ◈ NEW: STATS LAB sub-tab — all three modules visualized
-  ◈ TQS now incorporates +18 from liquidity, ±12 from order flow
-  ◈ Volume Profile chart with HVN/LVN/POC markers
+  ◈ Liquidity Theory module — Volume Profile, HVN/LVN, POC detection
+  ◈ Kolmogorov-Smirnov regime-shift test — flags stale fitness scores
+  ◈ Order Flow Imbalance (BTC/ETH) — Binance aggTrade aggressor analysis
+  ◈ STATS LAB sub-tab
   ◈ FIXED: line-1 'python' fence bug (file now starts cleanly)
   ◈ FIXED: KeyError f-string bug in Rules Engine (nested quotes)
   ◈ NEW: Adaptive min_conf — desks auto-tune based on rolling win rate
@@ -739,6 +745,169 @@ def fetch_order_flow_imbalance(sym, limit=500):
                 "sell_vol":0,"momentum":False,"verdict":"FETCH ERROR","price_chg_pct":0}
 
 
+# ══════════════════════════════════════════════════════════════
+# v5.2 — SMART MONEY FOOTPRINTS
+# ══════════════════════════════════════════════════════════════
+
+def find_rejection_blocks(closes, highs=None, lows=None, lookback=20):
+    """Identify Rejection Block candles: long wick + close in opposite third.
+
+    A bullish RB has price spike DOWN, get rejected, close in upper third
+    (institutions absorbed selling). Bearish RB is the inverse.
+
+    Returns:
+      blocks: list of {bar, type, price, strength, age}
+        type: 'BULL_RB' | 'BEAR_RB'
+        strength: 0-100 (wick dominance + close position)
+        age: bars ago (0 = current bar)
+      active: most recent block within last 5 bars (or None)
+      rb_score: TQS contribution 0-15 (active+aligned RB scores highest)
+    """
+    if not closes or len(closes) < 5:
+        return {"blocks":[],"active":None,"rb_score":0}
+    h = highs or [c*1.005 for c in closes]
+    l = lows  or [c*0.995 for c in closes]
+
+    blocks = []
+    start = max(1, len(closes) - lookback)
+    for i in range(start, len(closes)):
+        op = closes[i-1]  # use prior close as proxy for open (we lack OHLC)
+        cl = closes[i]
+        hi = h[i]; lo = l[i]
+        rng = hi - lo
+        if rng <= 0:
+            continue
+        upper_wick = hi - max(op, cl)
+        lower_wick = min(op, cl) - lo
+        body = abs(cl - op)
+        # Bullish RB: long lower wick, close in upper 1/3 of range
+        if (lower_wick / rng > 0.55
+            and (cl - lo) / rng > 0.66
+            and body / rng < 0.4):
+            strength = int(min(100, (lower_wick / rng) * 100 + (cl - lo) / rng * 30))
+            blocks.append({"bar":i,"type":"BULL_RB","price":round(lo, 2),
+                           "strength":strength,"age":len(closes) - 1 - i})
+        # Bearish RB: long upper wick, close in lower 1/3
+        if (upper_wick / rng > 0.55
+            and (hi - cl) / rng > 0.66
+            and body / rng < 0.4):
+            strength = int(min(100, (upper_wick / rng) * 100 + (hi - cl) / rng * 30))
+            blocks.append({"bar":i,"type":"BEAR_RB","price":round(hi, 2),
+                           "strength":strength,"age":len(closes) - 1 - i})
+
+    # Most recent within last 5 bars = "active"
+    active = None
+    for b in reversed(blocks):
+        if b["age"] <= 5:
+            active = b
+            break
+    rb_score = 0
+    if active:
+        rb_score = max(0, 15 - active["age"] * 2)  # decays with age
+    return {"blocks":blocks[-8:],"active":active,"rb_score":rb_score}
+
+
+def find_liquidity_sweeps(closes, highs=None, lows=None, lookback=15):
+    """Detect liquidity sweeps: price taking out a recent swing high/low then reversing.
+
+    A bull sweep = price runs BELOW a recent swing low (stops triggered),
+    then closes back above it = stops were the fuel for a reversal up.
+    Bear sweep is the inverse.
+
+    Returns:
+      sweeps: list of {bar, type, swept_level, age}
+      active: most recent sweep within last 3 bars (or None)
+      sweep_score: TQS contribution 0-15
+    """
+    if not closes or len(closes) < lookback + 2:
+        return {"sweeps":[],"active":None,"sweep_score":0}
+    h = highs or [c*1.005 for c in closes]
+    l = lows  or [c*0.995 for c in closes]
+
+    sweeps = []
+    # Look at each recent bar — did it pierce a prior swing then reverse?
+    for i in range(max(5, len(closes) - 8), len(closes)):
+        # Swing high in prior `lookback` bars (excluding current)
+        prior_window_h = h[max(0, i - lookback):i]
+        prior_window_l = l[max(0, i - lookback):i]
+        if not prior_window_h or not prior_window_l:
+            continue
+        swing_hi = max(prior_window_h)
+        swing_lo = min(prior_window_l)
+
+        # Bull sweep: low pierced swing_lo BUT close back above it
+        if l[i] < swing_lo and closes[i] > swing_lo:
+            sweeps.append({"bar":i,"type":"BULL_SWEEP",
+                           "swept_level":round(swing_lo, 2),
+                           "age":len(closes) - 1 - i,
+                           "depth_pct":round((swing_lo - l[i]) / swing_lo * 100, 2)})
+        # Bear sweep: high pierced swing_hi BUT close back below it
+        if h[i] > swing_hi and closes[i] < swing_hi:
+            sweeps.append({"bar":i,"type":"BEAR_SWEEP",
+                           "swept_level":round(swing_hi, 2),
+                           "age":len(closes) - 1 - i,
+                           "depth_pct":round((h[i] - swing_hi) / swing_hi * 100, 2)})
+
+    active = None
+    for s in reversed(sweeps):
+        if s["age"] <= 3:
+            active = s
+            break
+    sweep_score = 0
+    if active:
+        # Fresh sweep is strongest; depth adds confidence
+        sweep_score = max(0, 15 - active["age"] * 3) + min(3, int(active.get("depth_pct", 0) * 5))
+        sweep_score = min(15, sweep_score)
+    return {"sweeps":sweeps[-6:],"active":active,"sweep_score":sweep_score}
+
+
+def detect_smt_divergence(closes_a, closes_b, name_a, name_b, lookback=10):
+    """Smart Money Technique divergence: two correlated assets disagreeing.
+
+    Classic example: BTC makes a new high but ETH doesn't. Means the move
+    lacks broad confirmation — bearish SMT. Inverse for new lows.
+
+    closes_a / closes_b: aligned price arrays for two correlated instruments.
+    """
+    if (not closes_a or not closes_b
+        or len(closes_a) < lookback + 2 or len(closes_b) < lookback + 2):
+        return {"smt":None,"desc":"","smt_score":0}
+
+    n = min(len(closes_a), len(closes_b), lookback * 2 + 2)
+    a = closes_a[-n:]; b = closes_b[-n:]
+    a_recent, a_prev = a[-lookback:], a[-(lookback*2):-lookback]
+    b_recent, b_prev = b[-lookback:], b[-(lookback*2):-lookback]
+    if not a_prev or not b_prev:
+        return {"smt":None,"desc":"","smt_score":0}
+
+    a_made_hh = max(a_recent) > max(a_prev)
+    b_made_hh = max(b_recent) > max(b_prev)
+    a_made_ll = min(a_recent) < min(a_prev)
+    b_made_ll = min(b_recent) < min(b_prev)
+
+    smt = None; desc = ""; score = 0
+    # Bearish SMT: A made new high, B didn't
+    if a_made_hh and not b_made_hh:
+        smt = "BEAR_SMT"
+        desc = f"{name_a} made new high · {name_b} did not — momentum unconfirmed"
+        score = 10
+    elif b_made_hh and not a_made_hh:
+        smt = "BEAR_SMT"
+        desc = f"{name_b} made new high · {name_a} did not — momentum unconfirmed"
+        score = 10
+    # Bullish SMT: A made new low, B didn't
+    elif a_made_ll and not b_made_ll:
+        smt = "BULL_SMT"
+        desc = f"{name_a} made new low · {name_b} held — selling exhausted"
+        score = 10
+    elif b_made_ll and not a_made_ll:
+        smt = "BULL_SMT"
+        desc = f"{name_b} made new low · {name_a} held — selling exhausted"
+        score = 10
+    return {"smt":smt,"desc":desc,"smt_score":score,
+            "pair":f"{name_a}/{name_b}"}
+
+
 # MAIN SIGNAL ENGINE
 def compute_full_signal(closes, highs=None, lows=None, volumes=None, rules=None):
     empty = {"signal":"HOLD","conf":50,"rsi":50,"price":closes[-1] if closes else 0,
@@ -871,7 +1040,8 @@ def compute_full_signal(closes, highs=None, lows=None, volumes=None, rules=None)
 
 
 # v5 — TRADE QUALITY SCORE
-def compute_tqs(sig, sm_score, liq_info=None, flow_info=None):
+def compute_tqs(sig, sm_score, liq_info=None, flow_info=None,
+                rb_info=None, sweep_info=None, smt_info=None):
     pts = 0
     pts += min(30, sig.get("conf", 30)*0.35)
     reg = sig.get("regime", {}).get("regime", "UNKNOWN")
@@ -893,9 +1063,7 @@ def compute_tqs(sig, sm_score, liq_info=None, flow_info=None):
     vs = sig.get("vol_surge", 1)
     if vs > 1.5: pts += 5
     elif vs > 1.2: pts += 3
-    # v5.1 — liquidity zone contribution (up to 18)
     if liq_info: pts += liq_info.get("liq_score", 0)
-    # v5.1 — order flow alignment (BTC/ETH only, up to 12)
     if flow_info and flow_info.get("ok"):
         fs = flow_info.get("flow_score", 0)
         s = sig.get("signal", "HOLD")
@@ -903,7 +1071,36 @@ def compute_tqs(sig, sm_score, liq_info=None, flow_info=None):
         sig_short = s in ("SELL","STRONG SELL","OVERBOUGHT")
         if sig_long and fs > 10: pts += min(12, fs * 0.2)
         elif sig_short and fs < -10: pts += min(12, abs(fs) * 0.2)
-        elif (sig_long and fs < -25) or (sig_short and fs > 25): pts -= 8  # disagreement penalty
+        elif (sig_long and fs < -25) or (sig_short and fs > 25): pts -= 8
+    # v5.2 — Smart money footprints
+    if rb_info and rb_info.get("active"):
+        rb = rb_info["active"]
+        s = sig.get("signal", "HOLD")
+        sig_long = s in ("BUY","STRONG BUY","OVERSOLD")
+        sig_short = s in ("SELL","STRONG SELL","OVERBOUGHT")
+        # Aligned RB doubles in value, opposing RB penalises
+        if (rb["type"] == "BULL_RB" and sig_long) or (rb["type"] == "BEAR_RB" and sig_short):
+            pts += rb_info.get("rb_score", 0)
+        elif (rb["type"] == "BULL_RB" and sig_short) or (rb["type"] == "BEAR_RB" and sig_long):
+            pts -= 5
+    if sweep_info and sweep_info.get("active"):
+        sw = sweep_info["active"]
+        s = sig.get("signal", "HOLD")
+        sig_long = s in ("BUY","STRONG BUY","OVERSOLD")
+        sig_short = s in ("SELL","STRONG SELL","OVERBOUGHT")
+        # Bull sweep aligns with long bias, bear sweep with short
+        if (sw["type"] == "BULL_SWEEP" and sig_long) or (sw["type"] == "BEAR_SWEEP" and sig_short):
+            pts += sweep_info.get("sweep_score", 0)
+        elif (sw["type"] == "BULL_SWEEP" and sig_short) or (sw["type"] == "BEAR_SWEEP" and sig_long):
+            pts -= 4
+    if smt_info and smt_info.get("smt"):
+        s = sig.get("signal", "HOLD")
+        sig_long = s in ("BUY","STRONG BUY","OVERSOLD")
+        sig_short = s in ("SELL","STRONG SELL","OVERBOUGHT")
+        if (smt_info["smt"] == "BULL_SMT" and sig_long) or (smt_info["smt"] == "BEAR_SMT" and sig_short):
+            pts += smt_info.get("smt_score", 0)
+        elif (smt_info["smt"] == "BULL_SMT" and sig_short) or (smt_info["smt"] == "BEAR_SMT" and sig_long):
+            pts -= 5
     if sig.get("rule_block"): pts -= 20
     if sig.get("signal") == "HOLD": pts = pts*0.4
     return int(min(100, max(0, pts)))
@@ -1468,9 +1665,26 @@ flow_per_market = {mk: fetch_order_flow_imbalance(mk) if mk in ("BTC","ETH") els
                         "buy_vol":0,"sell_vol":0,"momentum":False,"price_chg_pct":0}
                    for mk in SEL}
 
+# v5.2 — Smart Money Footprints per market
+rb_per_market = {mk: find_rejection_blocks(raw_data[mk]["closes"]) for mk in SEL}
+sweep_per_market = {mk: find_liquidity_sweeps(raw_data[mk]["closes"]) for mk in SEL}
+
+# v5.2 — SMT divergence: pair correlated assets
+smt_per_market = {mk: {"smt":None,"desc":"","smt_score":0,"pair":""} for mk in SEL}
+SMT_PAIRS = [("BTC","ETH"), ("NQ","ES")]
+for a, b in SMT_PAIRS:
+    if a in SEL and b in SEL:
+        smt_result = detect_smt_divergence(raw_data[a]["closes"], raw_data[b]["closes"], a, b)
+        if smt_result.get("smt"):
+            smt_per_market[a] = smt_result
+            smt_per_market[b] = smt_result
+
 tqs_per_market = {mk: compute_tqs(market_signals[mk], sm_score,
                                   liq_info=liq_per_market[mk],
-                                  flow_info=flow_per_market[mk]) for mk in SEL}
+                                  flow_info=flow_per_market[mk],
+                                  rb_info=rb_per_market[mk],
+                                  sweep_info=sweep_per_market[mk],
+                                  smt_info=smt_per_market[mk]) for mk in SEL}
 council_per_market = {mk: council_vote(TRADERS, market_signals[mk]) for mk in SEL}
 
 for tr in TRADERS:
@@ -1747,6 +1961,69 @@ with t0:
           </div>
           <div style="margin-top:10px;border-top:1px solid #12101e;padding-top:10px">{reasons_html}</div>
         </div>""", unsafe_allow_html=True)
+
+    st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.15em;color:#c9a84c;margin:24px 0 10px">SMART MONEY FOOTPRINTS — REJECTION BLOCKS · LIQUIDITY SWEEPS · SMT</div>', unsafe_allow_html=True)
+    smf_cols = st.columns(len(SEL))
+    for col, mk in zip(smf_cols, SEL):
+        rb = rb_per_market[mk]
+        sw = sweep_per_market[mk]
+        smt = smt_per_market[mk]
+        # Pick dominant footprint for header
+        active_rb = rb.get("active")
+        active_sw = sw.get("active")
+        active_smt = smt.get("smt")
+        if active_rb:
+            head_label = "BULL RB" if active_rb["type"] == "BULL_RB" else "BEAR RB"
+            head_color = "#1aff8a" if active_rb["type"] == "BULL_RB" else "#ff2d55"
+            head_sub = f"strength {active_rb['strength']} · {active_rb['age']} bars ago"
+        elif active_sw:
+            head_label = "BULL SWEEP" if active_sw["type"] == "BULL_SWEEP" else "BEAR SWEEP"
+            head_color = "#1aff8a" if active_sw["type"] == "BULL_SWEEP" else "#ff2d55"
+            head_sub = f"swept ${active_sw['swept_level']:,.2f} · {active_sw['age']}b ago"
+        elif active_smt:
+            head_label = "BULL SMT" if active_smt == "BULL_SMT" else "BEAR SMT"
+            head_color = "#1aff8a" if active_smt == "BULL_SMT" else "#ff2d55"
+            head_sub = smt.get("pair", "")
+        else:
+            head_label = "QUIET"; head_color = "#5a5570"; head_sub = "no active footprint"
+        # RB lines
+        rb_lines = ""
+        if active_rb:
+            t = active_rb["type"].replace("_RB", "")
+            tc = "#1aff8a" if t == "BULL" else "#ff2d55"
+            rb_lines = f'<div style="color:{tc}">▣ {t} RB @ ${active_rb["price"]:,.2f} · age {active_rb["age"]}b · str {active_rb["strength"]}</div>'
+        else:
+            rb_lines = '<div style="color:#3a3550">▣ no active rejection</div>'
+        # Sweep lines
+        if active_sw:
+            t = active_sw["type"].replace("_SWEEP", "")
+            tc = "#1aff8a" if t == "BULL" else "#ff2d55"
+            sweep_lines = f'<div style="color:{tc}">⌇ {t} SWEEP @ ${active_sw["swept_level"]:,.2f} · depth {active_sw["depth_pct"]:.2f}%</div>'
+        else:
+            sweep_lines = '<div style="color:#3a3550">⌇ no liquidity sweep</div>'
+        # SMT lines
+        if active_smt:
+            tc = "#1aff8a" if active_smt == "BULL_SMT" else "#ff2d55"
+            smt_lines = f'<div style="color:{tc}">⊥ {active_smt.replace("_SMT","")} SMT · {smt.get("pair","")}</div>'
+        else:
+            smt_lines = '<div style="color:#3a3550">⊥ no SMT divergence</div>'
+        # Total bonus from these three
+        total_smf = rb.get("rb_score", 0) + sw.get("sweep_score", 0) + smt.get("smt_score", 0)
+        with col:
+            st.markdown(f"""
+            <div class="panel" style="border-top:2px solid {head_color};padding:14px 16px">
+              <div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.12em;color:#5a5570;margin-bottom:4px">{mk}</div>
+              <div style="font-family:Cinzel,serif;font-size:1.1rem;font-weight:900;color:{head_color};line-height:1">{head_label}</div>
+              <div style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:11px;color:#5a5570;margin-bottom:10px">{head_sub}</div>
+              <div style="font-family:JetBrains Mono,monospace;font-size:10px;line-height:1.7">
+                {rb_lines}
+                {sweep_lines}
+                {smt_lines}
+              </div>
+              <div style="margin-top:8px;padding-top:8px;border-top:1px solid #12101e;font-family:JetBrains Mono,monospace;font-size:10px">
+                <span style="color:#5a5570">TQS bonus:</span> <span style="color:#c9a84c;font-weight:700">+{total_smf}</span>
+              </div>
+            </div>""", unsafe_allow_html=True)
 
     # Live equity race
     st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.15em;color:#c9a84c;margin:24px 0 10px">LIVE EQUITY RACE</div>', unsafe_allow_html=True)
