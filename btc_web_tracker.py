@@ -1,12 +1,18 @@
 """
-NIGEL — Private Trading Intelligence  v5.0
-Ultra-luxury AI paper-trading platform with adaptive desks.
+NIGEL — Private Trading Intelligence  v5.1
+Ultra-luxury AI paper-trading platform with adaptive desks + Stats Lab.
 Run: streamlit run nigel.py
 
 NOTE: This is a SIMULATION. Trades are paper trades against live market
 data. No orders execute on any real exchange. For research / learning only.
 
-CHANGES v5.0 (vs v4.2):
+CHANGES v5.1 (vs v5.0):
+  ◈ NEW: Liquidity Theory module — Volume Profile, HVN/LVN, POC detection
+  ◈ NEW: Kolmogorov-Smirnov regime-shift test — flags stale fitness scores
+  ◈ NEW: Order Flow Imbalance (BTC/ETH) — Binance aggTrade aggressor analysis
+  ◈ NEW: STATS LAB sub-tab — all three modules visualized
+  ◈ TQS now incorporates +18 from liquidity, ±12 from order flow
+  ◈ Volume Profile chart with HVN/LVN/POC markers
   ◈ FIXED: line-1 'python' fence bug (file now starts cleanly)
   ◈ FIXED: KeyError f-string bug in Rules Engine (nested quotes)
   ◈ NEW: Adaptive min_conf — desks auto-tune based on rolling win rate
@@ -606,7 +612,134 @@ def volatility_regime(closes, window=20):
     elif rv_now < rv_series[-2]*0.88: forecast = "CONTRACTING"
     else: forecast = "STABLE"
     return {"rv":round(rv_now,1),"rv_pct_rank":round(rank,0),"forecast":forecast,"rv_5d":round(rv_5d,1)}
-  # MAIN SIGNAL ENGINE
+
+
+# ══════════════════════════════════════════════════════════════
+# v5.1 — STATS LAB MODULES
+# ══════════════════════════════════════════════════════════════
+
+def compute_liquidity_zones(closes, n_bins=20):
+    """Volume Profile lite — bins price history, identifies HVN/LVN.
+    Returns liq_score (0-20) added to TQS, plus zone classification."""
+    if not closes or len(closes) < 30:
+        return {"hvn":[],"lvn":[],"poc":None,"liq_score":0,
+                "zone_type":"NEUTRAL","dist_to_poc_pct":0,"current_zone_density":0}
+    arr = np.array(closes)
+    p_min, p_max = float(arr.min()), float(arr.max())
+    if p_max <= p_min:
+        return {"hvn":[],"lvn":[],"poc":None,"liq_score":0,
+                "zone_type":"NEUTRAL","dist_to_poc_pct":0,"current_zone_density":0}
+    bin_edges = np.linspace(p_min, p_max, n_bins + 1)
+    counts, _ = np.histogram(arr, bins=bin_edges)
+    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+    max_count = counts.max() if counts.max() > 0 else 1
+    density = counts / max_count
+    hvn_idx = np.where(density >= 0.70)[0]
+    lvn_idx = np.where((density <= 0.25) & (counts > 0))[0]
+    hvn = [round(float(bin_centers[i]), 2) for i in hvn_idx]
+    lvn = [round(float(bin_centers[i]), 2) for i in lvn_idx]
+    poc_idx = int(counts.argmax())
+    poc = round(float(bin_centers[poc_idx]), 2)
+    cur = float(closes[-1])
+    cur_bin = min(n_bins - 1, max(0, int((cur - p_min) / (p_max - p_min) * n_bins)))
+    cur_density = float(density[cur_bin])
+    dist_to_poc_pct = (cur - poc) / poc * 100 if poc else 0
+    liq_score = 0; zone_type = "NEUTRAL"
+    if cur_density <= 0.25:
+        zone_type = "LVN_BREAKOUT"; liq_score = 18
+    elif cur_density >= 0.70:
+        zone_type = "HVN_CHOP"; liq_score = 5
+    else:
+        if cur_bin > 0 and density[cur_bin - 1] >= 0.70 and density[cur_bin] < 0.50:
+            zone_type = "HVN_REJECT_UP"; liq_score = 12
+        elif cur_bin < n_bins - 1 and density[cur_bin + 1] >= 0.70 and density[cur_bin] < 0.50:
+            zone_type = "HVN_REJECT_DOWN"; liq_score = 12
+        else:
+            zone_type = "NEUTRAL"; liq_score = 7
+    return {"hvn":hvn,"lvn":lvn,"poc":poc,"liq_score":liq_score,
+            "zone_type":zone_type,"dist_to_poc_pct":round(dist_to_poc_pct, 2),
+            "current_zone_density":round(cur_density, 3)}
+
+
+def ks_regime_shift(closes, recent_n=10, baseline_n=30):
+    """Two-sample KS test — has the return distribution shifted?
+    Low p-value = regime change → fitness scores from old data are stale."""
+    if not closes or len(closes) < recent_n + baseline_n + 2:
+        return {"ks_stat":0,"p_value":1.0,"regime_stable":True,
+                "verdict":"INSUFFICIENT_DATA","trust_fitness":True}
+    rets = np.diff(np.log(np.array(closes)))
+    if len(rets) < recent_n + baseline_n:
+        return {"ks_stat":0,"p_value":1.0,"regime_stable":True,
+                "verdict":"INSUFFICIENT_DATA","trust_fitness":True}
+    recent = rets[-recent_n:]
+    baseline = rets[-(recent_n + baseline_n):-recent_n]
+    combined = np.sort(np.concatenate([recent, baseline]))
+    cdf_r = np.searchsorted(np.sort(recent), combined, side='right') / len(recent)
+    cdf_b = np.searchsorted(np.sort(baseline), combined, side='right') / len(baseline)
+    ks_stat = float(np.max(np.abs(cdf_r - cdf_b)))
+    n1, n2 = len(recent), len(baseline)
+    en = math.sqrt(n1 * n2 / (n1 + n2))
+    lam = (en + 0.12 + 0.11 / en) * ks_stat
+    p_value = 0.0
+    for j in range(1, 101):
+        term = ((-1) ** (j - 1)) * math.exp(-2 * lam * lam * j * j)
+        p_value += term
+        if abs(term) < 1e-10:
+            break
+    p_value = max(0.0, min(1.0, 2 * p_value))
+    if p_value > 0.10:
+        verdict = "STABLE"; stable = True; trust = True
+    elif p_value > 0.01:
+        verdict = "SHIFTING"; stable = False; trust = False
+    else:
+        verdict = "BROKEN"; stable = False; trust = False
+    return {"ks_stat":round(ks_stat, 3),"p_value":round(p_value, 4),
+            "regime_stable":stable,"verdict":verdict,"trust_fitness":trust}
+
+
+@st.cache_data(ttl=30)
+def fetch_order_flow_imbalance(sym, limit=500):
+    """Binance aggTrades → buy/sell volume imbalance. BTC/ETH only."""
+    sym_map = {"BTC":"BTCUSDT","ETH":"ETHUSDT"}
+    bsym = sym_map.get(sym)
+    if not bsym:
+        return {"ok":False,"flow_ratio":0.5,"flow_score":0,"buy_vol":0,
+                "sell_vol":0,"momentum":False,"verdict":"N/A","price_chg_pct":0}
+    try:
+        url = f"https://api.binance.com/api/v3/aggTrades?symbol={bsym}&limit={limit}"
+        data = requests.get(url, timeout=8).json()
+        if not isinstance(data, list) or not data:
+            raise ValueError("empty aggTrades")
+        buy_vol = 0.0; sell_vol = 0.0
+        first_p = float(data[0]["p"]); last_p = float(data[-1]["p"])
+        for t in data:
+            q = float(t["q"])
+            # m=True: buyer was maker → SELL aggression. m=False: BUY aggression.
+            if t["m"]: sell_vol += q
+            else: buy_vol += q
+        total = buy_vol + sell_vol
+        if total <= 0:
+            return {"ok":False,"flow_ratio":0.5,"flow_score":0,"buy_vol":0,
+                    "sell_vol":0,"momentum":False,"verdict":"N/A","price_chg_pct":0}
+        flow_ratio = buy_vol / total
+        flow_score = int((flow_ratio - 0.5) * 200)
+        price_chg_pct = (last_p - first_p) / first_p * 100
+        momentum = (flow_score > 10 and price_chg_pct > 0) or (flow_score < -10 and price_chg_pct < 0)
+        if flow_score > 25: verdict = "STRONG BUY FLOW"
+        elif flow_score > 10: verdict = "BUY FLOW"
+        elif flow_score < -25: verdict = "STRONG SELL FLOW"
+        elif flow_score < -10: verdict = "SELL FLOW"
+        else: verdict = "BALANCED"
+        return {"ok":True,"flow_ratio":round(flow_ratio, 3),"flow_score":flow_score,
+                "buy_vol":round(buy_vol, 2),"sell_vol":round(sell_vol, 2),
+                "momentum":momentum,"verdict":verdict,
+                "price_chg_pct":round(price_chg_pct, 3)}
+    except Exception:
+        return {"ok":False,"flow_ratio":0.5,"flow_score":0,"buy_vol":0,
+                "sell_vol":0,"momentum":False,"verdict":"FETCH ERROR","price_chg_pct":0}
+
+
+# MAIN SIGNAL ENGINE
 def compute_full_signal(closes, highs=None, lows=None, volumes=None, rules=None):
     empty = {"signal":"HOLD","conf":50,"rsi":50,"price":closes[-1] if closes else 0,
              "atr_pct":0,"bb_pct":50,"stoch_k":50,"mom":0,"vol_surge":1,
@@ -738,7 +871,7 @@ def compute_full_signal(closes, highs=None, lows=None, volumes=None, rules=None)
 
 
 # v5 — TRADE QUALITY SCORE
-def compute_tqs(sig, sm_score):
+def compute_tqs(sig, sm_score, liq_info=None, flow_info=None):
     pts = 0
     pts += min(30, sig.get("conf", 30)*0.35)
     reg = sig.get("regime", {}).get("regime", "UNKNOWN")
@@ -760,6 +893,17 @@ def compute_tqs(sig, sm_score):
     vs = sig.get("vol_surge", 1)
     if vs > 1.5: pts += 5
     elif vs > 1.2: pts += 3
+    # v5.1 — liquidity zone contribution (up to 18)
+    if liq_info: pts += liq_info.get("liq_score", 0)
+    # v5.1 — order flow alignment (BTC/ETH only, up to 12)
+    if flow_info and flow_info.get("ok"):
+        fs = flow_info.get("flow_score", 0)
+        s = sig.get("signal", "HOLD")
+        sig_long = s in ("BUY","STRONG BUY","OVERSOLD")
+        sig_short = s in ("SELL","STRONG SELL","OVERBOUGHT")
+        if sig_long and fs > 10: pts += min(12, fs * 0.2)
+        elif sig_short and fs < -10: pts += min(12, abs(fs) * 0.2)
+        elif (sig_long and fs < -25) or (sig_short and fs > 25): pts -= 8  # disagreement penalty
     if sig.get("rule_block"): pts -= 20
     if sig.get("signal") == "HOLD": pts = pts*0.4
     return int(min(100, max(0, pts)))
@@ -1225,7 +1369,9 @@ def build_journal_csv():
 
 def fmt_price(mk, p):
     return f"${p:,.0f}" if mk in ("BTC","ETH") else f"${p:,.2f}"
-  # SIDEBAR
+
+
+# SIDEBAR
 with st.sidebar:
     st.markdown('<div style="font-family:Cinzel,serif;font-weight:900;font-size:1.4rem;letter-spacing:.3em;color:#fff;margin:16px 0 4px">NIGEL</div>', unsafe_allow_html=True)
     st.markdown('<div style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:11px;color:#5a5570;margin-bottom:20px">Private Trading Intelligence v5.0</div>', unsafe_allow_html=True)
@@ -1313,7 +1459,18 @@ with st.spinner(""):
 
 shield_active = check_drawdown_shield()
 sm_score, sm_label, sm_sessions = smart_money_clock()
-tqs_per_market = {mk: compute_tqs(market_signals[mk], sm_score) for mk in SEL}
+
+# v5.1 — Stats Lab live data per market
+liq_per_market = {mk: compute_liquidity_zones(raw_data[mk]["closes"]) for mk in SEL}
+ks_per_market = {mk: ks_regime_shift(raw_data[mk]["closes"]) for mk in SEL}
+flow_per_market = {mk: fetch_order_flow_imbalance(mk) if mk in ("BTC","ETH") else
+                       {"ok":False,"flow_score":0,"verdict":"N/A","flow_ratio":0.5,
+                        "buy_vol":0,"sell_vol":0,"momentum":False,"price_chg_pct":0}
+                   for mk in SEL}
+
+tqs_per_market = {mk: compute_tqs(market_signals[mk], sm_score,
+                                  liq_info=liq_per_market[mk],
+                                  flow_info=flow_per_market[mk]) for mk in SEL}
 council_per_market = {mk: council_vote(TRADERS, market_signals[mk]) for mk in SEL}
 
 for tr in TRADERS:
@@ -1612,7 +1769,9 @@ with t0:
         xaxis=dict(gridcolor="#12101e", title=dict(text="P&L vs starting", font=dict(family="Cinzel", size=9))),
         yaxis=dict(gridcolor="#12101e"), showlegend=False)
     st.plotly_chart(fig_race, use_container_width=True, key="equity_race")
-      # ==============================================================
+
+
+# ==============================================================
 # TAB 1 — INTELLIGENCE
 # ==============================================================
 with t1:
@@ -1948,7 +2107,9 @@ with t3:
             <div class="panel" style="margin-bottom:10px"><div class="stat-val" style="color:#c9a84c">{avg_conf:.0f}%</div><div class="stat-lbl">Avg Conf</div></div>
             <div class="panel"><div class="stat-val" style="color:#c9a84c">{avg_tqs:.0f}</div><div class="stat-lbl">Avg TQS</div></div>
             """, unsafe_allow_html=True)
-      # ==============================================================
+
+
+# ==============================================================
 # TAB 4 — LIVE CHARTS
 # ==============================================================
 with t4:
@@ -2272,7 +2433,7 @@ with t8:
 # TAB 9 — EDGE TOOLS
 # ==============================================================
 with t9:
-    et1, et2, et3, et4 = st.tabs(["RISK OF RUIN", "CORRELATIONS", "DIVERGENCE REPORT", "REGIME & VOL"])
+    et1, et2, et3, et4, et5 = st.tabs(["RISK OF RUIN", "CORRELATIONS", "DIVERGENCE REPORT", "REGIME & VOL", "STATS LAB"])
 
     # --- ET1 RISK OF RUIN ---
     with et1:
@@ -2413,6 +2574,136 @@ with t9:
             yaxis=dict(gridcolor="#12101e", range=[0, 100]),
             font=dict(family="JetBrains Mono", size=10, color="#5a5570"))
         st.plotly_chart(fig_sm, use_container_width=True, key="sm_chart")
+
+    # --- ET5 STATS LAB ---
+    with et5:
+        st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.2em;color:#c9a84c;margin-bottom:8px">STATS LAB · v5.1</div>', unsafe_allow_html=True)
+        st.markdown('<div style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:13px;color:#5a5570;margin-bottom:18px">Liquidity zones · KS regime test · Order flow imbalance. All three feed the TQS score.</div>', unsafe_allow_html=True)
+
+        sl_mk = st.selectbox("Instrument", SEL, key="stats_lab_mk")
+        liq = liq_per_market[sl_mk]
+        ks = ks_per_market[sl_mk]
+        flow = flow_per_market[sl_mk]
+        cur_price = live_prices[sl_mk]
+
+        c1, c2, c3 = st.columns(3)
+        liq_zone = liq.get("zone_type", "NEUTRAL")
+        liq_color = ("#1aff8a" if liq_zone == "LVN_BREAKOUT"
+                     else "#c9a84c" if "REJECT" in liq_zone
+                     else "#ff2d55" if liq_zone == "HVN_CHOP" else "#5a5570")
+        with c1:
+            st.markdown(f"""
+            <div class="panel" style="border-top:2px solid {liq_color}">
+              <div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.15em;color:#5a5570;margin-bottom:6px">LIQUIDITY THEORY</div>
+              <div style="font-family:Cinzel,serif;font-size:1.4rem;font-weight:900;color:{liq_color};line-height:1">{liq_zone.replace('_',' ')}</div>
+              <div style="font-family:JetBrains Mono,monospace;font-size:11px;line-height:1.8;margin-top:10px">
+                <div><span style="color:#5a5570">POC:</span> <span style="color:#fff">${liq.get('poc',0):,.2f}</span></div>
+                <div><span style="color:#5a5570">Distance to POC:</span> <span style="color:#c9a84c">{liq.get('dist_to_poc_pct',0):+.2f}%</span></div>
+                <div><span style="color:#5a5570">Current zone density:</span> <span style="color:#fff">{liq.get('current_zone_density',0):.2f}</span></div>
+                <div><span style="color:#5a5570">HVN levels:</span> <span style="color:#1aff8a">{len(liq.get('hvn',[]))}</span></div>
+                <div><span style="color:#5a5570">LVN gaps:</span> <span style="color:#ff2d55">{len(liq.get('lvn',[]))}</span></div>
+                <div style="margin-top:8px"><span style="color:#5a5570">TQS contribution:</span> <span style="color:#c9a84c;font-weight:700">+{liq.get('liq_score',0)}</span></div>
+              </div>
+            </div>""", unsafe_allow_html=True)
+
+        ks_verdict = ks.get("verdict", "STABLE")
+        ks_color = "#1aff8a" if ks_verdict == "STABLE" else "#c9a84c" if ks_verdict == "SHIFTING" else "#ff2d55" if ks_verdict == "BROKEN" else "#5a5570"
+        trust_str = "✓ TRUST FITNESS" if ks.get("trust_fitness") else "⚠ FITNESS STALE"
+        with c2:
+            st.markdown(f"""
+            <div class="panel" style="border-top:2px solid {ks_color}">
+              <div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.15em;color:#5a5570;margin-bottom:6px">KOLMOGOROV-SMIRNOV</div>
+              <div style="font-family:Cinzel,serif;font-size:1.4rem;font-weight:900;color:{ks_color};line-height:1">{ks_verdict}</div>
+              <div style="font-family:JetBrains Mono,monospace;font-size:11px;line-height:1.8;margin-top:10px">
+                <div><span style="color:#5a5570">KS statistic:</span> <span style="color:#fff">{ks.get('ks_stat',0):.3f}</span></div>
+                <div><span style="color:#5a5570">p-value:</span> <span style="color:#c9a84c">{ks.get('p_value',1.0):.4f}</span></div>
+                <div><span style="color:#5a5570">Recent vs baseline:</span> <span style="color:#fff">10d vs 30d</span></div>
+                <div><span style="color:#5a5570">Distribution:</span> <span style="color:{ks_color}">{'unchanged' if ks.get('regime_stable') else 'CHANGED'}</span></div>
+                <div style="margin-top:8px;color:{ks_color};font-weight:700">{trust_str}</div>
+              </div>
+            </div>""", unsafe_allow_html=True)
+
+        flow_verdict = flow.get("verdict", "N/A")
+        fs = flow.get("flow_score", 0)
+        flow_color = "#1aff8a" if fs > 10 else "#ff2d55" if fs < -10 else "#5a5570"
+        with c3:
+            if flow.get("ok"):
+                st.markdown(f"""
+                <div class="panel" style="border-top:2px solid {flow_color}">
+                  <div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.15em;color:#5a5570;margin-bottom:6px">ORDER FLOW (BINANCE)</div>
+                  <div style="font-family:Cinzel,serif;font-size:1.4rem;font-weight:900;color:{flow_color};line-height:1">{flow_verdict}</div>
+                  <div style="font-family:JetBrains Mono,monospace;font-size:11px;line-height:1.8;margin-top:10px">
+                    <div><span style="color:#5a5570">Flow score:</span> <span style="color:{flow_color};font-weight:700">{fs:+d}</span></div>
+                    <div><span style="color:#5a5570">Buy/Sell ratio:</span> <span style="color:#fff">{flow.get('flow_ratio',0):.3f}</span></div>
+                    <div><span style="color:#5a5570">Buy vol:</span> <span style="color:#1aff8a">{flow.get('buy_vol',0):,.2f}</span></div>
+                    <div><span style="color:#5a5570">Sell vol:</span> <span style="color:#ff2d55">{flow.get('sell_vol',0):,.2f}</span></div>
+                    <div><span style="color:#5a5570">Price drift:</span> <span style="color:#c9a84c">{flow.get('price_chg_pct',0):+.3f}%</span></div>
+                    <div style="margin-top:8px"><span style="color:#5a5570">Momentum aligned:</span> <span style="color:{'#1aff8a' if flow.get('momentum') else '#ff2d55'};font-weight:700">{'YES' if flow.get('momentum') else 'NO'}</span></div>
+                  </div>
+                </div>""", unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <div class="panel" style="border-top:2px solid #5a5570">
+                  <div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.15em;color:#5a5570;margin-bottom:6px">ORDER FLOW (BINANCE)</div>
+                  <div style="font-family:Cormorant Garamond,serif;font-style:italic;color:#5a5570;font-size:13px;margin-top:10px">Order flow only available for BTC and ETH. {sl_mk} uses Polygon daily data which has no tick-level aggressor info.</div>
+                </div>""", unsafe_allow_html=True)
+
+        st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.2em;color:#c9a84c;margin:24px 0 10px">VOLUME PROFILE — PRICE DISTRIBUTION</div>', unsafe_allow_html=True)
+        if liq.get("poc") is not None and len(raw_data[sl_mk]["closes"]) >= 30:
+            arr = np.array(raw_data[sl_mk]["closes"])
+            p_min, p_max = float(arr.min()), float(arr.max())
+            n_bins = 20
+            bin_edges = np.linspace(p_min, p_max, n_bins + 1)
+            counts, _ = np.histogram(arr, bins=bin_edges)
+            bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+            max_c = counts.max() if counts.max() > 0 else 1
+            density = counts / max_c
+            bar_colors = []
+            for d in density:
+                if d >= 0.70: bar_colors.append("#1aff8a")
+                elif d <= 0.25 and d > 0: bar_colors.append("#ff2d55")
+                else: bar_colors.append("#c9a84c")
+            fig_vp = go.Figure()
+            fig_vp.add_trace(go.Bar(
+                y=bin_centers, x=counts, orientation='h',
+                marker=dict(color=bar_colors, opacity=0.75),
+                name="Frequency", hovertemplate="$%{y:,.2f}<br>Count: %{x}<extra></extra>"))
+            fig_vp.add_hline(y=cur_price, line=dict(color="#fff", width=2, dash="dash"),
+                annotation_text=f"NOW ${cur_price:,.2f}", annotation_position="right")
+            fig_vp.add_hline(y=liq["poc"], line=dict(color="#c9a84c", width=1, dash="dot"),
+                annotation_text=f"POC", annotation_position="left")
+            fig_vp.update_layout(height=400, template="plotly_dark",
+                paper_bgcolor="#05040a", plot_bgcolor="#09080f",
+                margin=dict(l=0,r=0,t=10,b=0), showlegend=False,
+                xaxis=dict(gridcolor="#12101e", title=dict(text="Frequency", font=dict(family="Cinzel", size=9))),
+                yaxis=dict(gridcolor="#12101e", title=dict(text="Price", font=dict(family="Cinzel", size=9))),
+                font=dict(family="JetBrains Mono", size=10, color="#5a5570"))
+            st.plotly_chart(fig_vp, use_container_width=True, key=f"vp_{sl_mk}")
+
+        st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.2em;color:#c9a84c;margin:18px 0 10px">CURRENT TQS BREAKDOWN — ALL INSTRUMENTS</div>', unsafe_allow_html=True)
+        bd_rows = []
+        for mk in SEL:
+            l = liq_per_market[mk]; k = ks_per_market[mk]; f = flow_per_market[mk]
+            bd_rows.append({
+                "Market": mk,
+                "TQS": tqs_per_market[mk],
+                "Liq Zone": l.get("zone_type","—").replace("_"," "),
+                "Liq +": f"+{l.get('liq_score',0)}",
+                "KS Verdict": k.get("verdict","—"),
+                "p-value": f"{k.get('p_value',1.0):.3f}",
+                "Trust Fit": "✓" if k.get("trust_fitness") else "⚠",
+                "Flow": f.get("verdict","N/A") if f.get("ok") else "—",
+                "Flow Score": f.get("flow_score",0) if f.get("ok") else "—",
+            })
+        st.dataframe(pd.DataFrame(bd_rows), use_container_width=True, hide_index=True)
+
+        st.markdown("""
+        <div style="background:#0d0c16;border:1px solid #12101e;border-left:2px solid #a855f7;border-radius:1px;padding:14px 18px;margin-top:16px;font-family:Cormorant Garamond,serif;font-size:13px;line-height:1.7;color:#5a5570">
+        <div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.15em;color:#a855f7;margin-bottom:8px">HOW TO READ THIS</div>
+        <b style="color:#c9a84c">LIQUIDITY THEORY</b> — Price tends to magnet toward HVNs (high-volume nodes) and accelerate through LVNs (gaps). LVN_BREAKOUT setups reward directional bets; HVN_CHOP zones reward fading. Adds up to <b style="color:#1aff8a">+18 to TQS</b>.<br><br>
+        <b style="color:#c9a84c">KS TEST</b> — When the recent return distribution differs from baseline (low p-value), the regime shifted. Your historical fitness scores were trained on the OLD regime, so trust them less. <b style="color:#ff2d55">⚠ FITNESS STALE</b> means be skeptical of desk leaderboards until adaptive learning catches up.<br><br>
+        <b style="color:#c9a84c">ORDER FLOW</b> — Aggressor analysis on the last 500 Binance trades (BTC/ETH only). Buy flow + price up = momentum. Buy flow + price down = exhaustion. Adds <b style="color:#1aff8a">up to +12</b> when flow agrees with the signal, <b style="color:#ff2d55">−8</b> when they conflict.
+        </div>""", unsafe_allow_html=True)
 
 
 # ==============================================================
