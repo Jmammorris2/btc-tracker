@@ -1,7 +1,6 @@
 """
-NIGEL - Private Trading Intelligence v5.3 - APEX EDITION
-Apex Trader Funding $50K rules built-in.
-Instruments: SOL, SOXL, AVAX, LINK, TQQQ, XBI
+NIGEL - Private Trading Intelligence v5.4 - APEX NINJATRADER EDITION
+Real NinjaTrader/Apex contracts: NQ, CL, GC, MNQ, MES, MBT
 SIMULATION ONLY - no real orders execute.
 """
 
@@ -21,7 +20,7 @@ import math
 import random
 
 st.set_page_config(
-    page_title="NIGEL APEX",
+    page_title="NIGEL APEX NT",
     layout="wide",
     page_icon="N",
     initial_sidebar_state="collapsed"
@@ -32,7 +31,7 @@ st.markdown("""
 @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700;900&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=JetBrains+Mono:wght@300;400;500;700&display=swap');
 :root{
   --obsidian:#05040a;--obsidian2:#09080f;--obsidian3:#0d0c16;--obsidian4:#12101e;
-  --gold:#c9a84c;--gold2:#e8c97a;--gold-dim:rgba(201,168,76,0.12);
+  --gold:#c9a84c;--gold-dim:rgba(201,168,76,0.12);
   --emerald:#1aff8a;--emerald-dim:rgba(26,255,138,0.08);
   --crimson:#ff2d55;--crimson-dim:rgba(255,45,85,0.08);
   --sapphire:#00c4ff;--sapphire-dim:rgba(0,196,255,0.08);
@@ -46,14 +45,14 @@ html,body,[class*="css"]{font-family:'Cormorant Garamond',Georgia,serif!importan
 .block-container{padding:0 2rem 2rem!important;max-width:100%!important;}
 .nigel-masthead{display:flex;align-items:flex-end;justify-content:space-between;padding:28px 0 18px;border-bottom:1px solid var(--border2);margin-bottom:24px;position:relative;}
 .nigel-masthead::after{content:'';position:absolute;bottom:-1px;left:0;width:120px;height:2px;background:linear-gradient(90deg,var(--gold),transparent);}
-.nigel-wordmark{font-family:'Cinzel',serif;font-size:3.4rem;font-weight:900;letter-spacing:0.3em;color:#fff;line-height:1;}
+.nigel-wordmark{font-family:'Cinzel',serif;font-size:3.2rem;font-weight:900;letter-spacing:0.3em;color:#fff;line-height:1;}
 .nigel-wordmark em{font-style:normal;color:var(--gold);font-weight:400;}
 .nigel-tagline{font-family:'Cormorant Garamond',serif;font-weight:300;font-style:italic;font-size:1rem;color:var(--text-dim);letter-spacing:0.12em;margin-top:4px;}
 .ticker-wrap{overflow:hidden;background:var(--obsidian2);border-top:1px solid var(--border);border-bottom:1px solid var(--border);padding:8px 0;margin:0 0 24px;}
 .ticker-track{display:inline-flex;gap:60px;animation:ticker-scroll 30s linear infinite;white-space:nowrap;}
 @keyframes ticker-scroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
 .tick-item{font-family:'JetBrains Mono',monospace;font-size:11px;display:inline-flex;align-items:center;gap:8px;letter-spacing:.04em;}
-.tick-sym{color:var(--gold);font-weight:700}.tick-px{color:#fff}.tick-up{color:var(--emerald)}.tick-dn{color:var(--crimson)}.tick-sep{color:var(--text-muted)}
+.tick-sym{color:var(--gold);font-weight:700;}.tick-px{color:#fff;}.tick-up{color:var(--emerald);}.tick-dn{color:var(--crimson);}.tick-sep{color:var(--text-muted);}
 .signal-card{background:var(--obsidian2);border:1px solid var(--border);border-radius:2px;padding:18px;position:relative;overflow:hidden;}
 .signal-card::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;}
 .signal-card.bull::before{background:linear-gradient(90deg,var(--emerald),transparent 70%);}
@@ -138,6 +137,7 @@ hr{border:none!important;border-top:1px solid var(--border)!important;margin:18p
 .apex-progress-track{background:var(--obsidian4);height:8px;border-radius:4px;overflow:hidden;margin:5px 0 2px;}
 .apex-progress-fill{height:100%;border-radius:4px;}
 .proxy-tag{display:inline-block;background:rgba(255,149,0,0.10);border:1px solid rgba(255,149,0,0.3);border-radius:1px;padding:2px 8px;font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--apex);letter-spacing:.08em;}
+.target-box{background:rgba(26,255,138,0.06);border:1px solid rgba(26,255,138,0.2);border-radius:1px;padding:10px 14px;font-family:'JetBrains Mono',monospace;font-size:11px;margin-top:6px;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -155,31 +155,71 @@ APEX_CONFIG = {
 }
 
 # ==============================================================
-# MARKETS
+# MARKETS - Real NinjaTrader/Apex Futures
 # ==============================================================
 MARKETS = {
-    "SOL":  {"label":"Solana",    "sub":"SOL/USD",   "stop":0.040, "crypto":True,  "color":"#9945FF", "emoji":"S", "apex_proxy":"MBT",  "apex_note":"Micro Bitcoin futures - 0.1 BTC/contract"},
-    "SOXL": {"label":"Semis 3x",  "sub":"SOXL ETF",  "stop":0.030, "crypto":False, "color":"#00C4FF", "emoji":"X", "apex_proxy":"MNQ",  "apex_note":"Micro E-mini Nasdaq - $2/point"},
-    "AVAX": {"label":"Avalanche", "sub":"AVAX/USD",  "stop":0.045, "crypto":True,  "color":"#E84142", "emoji":"A", "apex_proxy":"MET",  "apex_note":"Micro Ether futures - 0.1 ETH/contract"},
-    "LINK": {"label":"Chainlink", "sub":"LINK/USD",  "stop":0.035, "crypto":True,  "color":"#2A5ADA", "emoji":"L", "apex_proxy":"MBT",  "apex_note":"Micro Bitcoin futures - closest crypto"},
-    "TQQQ": {"label":"Nasdaq 3x", "sub":"TQQQ ETF",  "stop":0.025, "crypto":False, "color":"#1AFF8A", "emoji":"Q", "apex_proxy":"MNQ",  "apex_note":"Micro E-mini Nasdaq - $2/point"},
-    "XBI":  {"label":"Biotech",   "sub":"XBI ETF",   "stop":0.020, "crypto":False, "color":"#FF6644", "emoji":"B", "apex_proxy":"RTY",  "apex_note":"Russell 2000 - $5/point micro"},
+    "NQ": {
+        "label":"E-mini Nasdaq",  "sub":"NQ Futures",     "stop":0.010,
+        "crypto":False, "color":"#00C4FF", "emoji":"N", "poly_ticker":"QQQ",
+        "apex_proxy":"NQ",
+        "apex_note":"$20/point - 50pt move = $1,000 - prime time 9:30-11am ET",
+        "contract_size":"$20 per point", "tick_size":"0.25 pts = $5.00",
+        "daily_target_pts":50, "daily_target_usd":1000,
+    },
+    "CL": {
+        "label":"Crude Oil",      "sub":"CL Futures",     "stop":0.018,
+        "crypto":False, "color":"#FF6644", "emoji":"O", "poly_ticker":"USO",
+        "apex_proxy":"CL",
+        "apex_note":"$1,000 per $1 move - $1 move = $1,000 - Wed 10:30am inventory",
+        "contract_size":"$1,000 per $1.00", "tick_size":"$0.01 = $10.00",
+        "daily_target_pts":1.0, "daily_target_usd":1000,
+    },
+    "GC": {
+        "label":"Gold",           "sub":"GC Futures",     "stop":0.008,
+        "crypto":False, "color":"#c9a84c", "emoji":"G", "poly_ticker":"GLD",
+        "apex_proxy":"GC",
+        "apex_note":"$100 per $1 move - $10 move = $1,000 - London and NY sessions",
+        "contract_size":"$100 per $1.00", "tick_size":"$0.10 = $10.00",
+        "daily_target_pts":10.0, "daily_target_usd":1000,
+    },
+    "MNQ": {
+        "label":"Micro Nasdaq",   "sub":"MNQ Futures",    "stop":0.010,
+        "crypto":False, "color":"#627eea", "emoji":"M", "poly_ticker":"QQQ",
+        "apex_proxy":"MNQ",
+        "apex_note":"$2/point - 1/10th of NQ - 500pt move = $1,000 - use to size into NQ",
+        "contract_size":"$2 per point", "tick_size":"0.25 pts = $0.50",
+        "daily_target_pts":500, "daily_target_usd":1000,
+    },
+    "MES": {
+        "label":"Micro S&P 500",  "sub":"MES Futures",    "stop":0.008,
+        "crypto":False, "color":"#1AFF8A", "emoji":"S", "poly_ticker":"SPY",
+        "apex_proxy":"MES",
+        "apex_note":"$5/point - 1/10th of ES - 200pt move = $1,000 - less volatile than NQ",
+        "contract_size":"$5 per point", "tick_size":"0.25 pts = $1.25",
+        "daily_target_pts":200, "daily_target_usd":1000,
+    },
+    "MBT": {
+        "label":"Micro Bitcoin",  "sub":"MBT Futures",    "stop":0.030,
+        "crypto":True,  "color":"#f7931a", "emoji":"B", "poly_ticker":None,
+        "apex_proxy":"MBT",
+        "apex_note":"0.1 BTC per contract - 3% BTC move on $85K = $255/contract",
+        "contract_size":"0.1 BTC", "tick_size":"$5.00 per tick",
+        "daily_target_pts":3.0, "daily_target_usd":1000,
+    },
 }
 
 CRYPTO_MAP = {
-    "SOL":  {"cg_id":"solana",      "binance":"SOLUSDT",  "fallback":150.0},
-    "AVAX": {"cg_id":"avalanche-2", "binance":"AVAXUSDT", "fallback":38.0},
-    "LINK": {"cg_id":"chainlink",   "binance":"LINKUSDT", "fallback":16.0},
+    "MBT": {"cg_id":"bitcoin", "binance":"BTCUSDT", "fallback":85000.0},
 }
 
-TICKERS = {"SOXL":"SOXL", "TQQQ":"TQQQ", "XBI":"XBI"}
+TICKERS = {"NQ":"QQQ", "CL":"USO", "GC":"GLD", "MNQ":"QQQ", "MES":"SPY"}
 
 SESSION_TIPS = {
-    "TOKYO":    "SOL and AVAX most active. Asian crypto flows favour momentum.",
-    "LONDON":   "LINK often trends hard at open. SOXL pre-market range sets the day.",
-    "NEW YORK": "All six live. TQQQ and SOXL peak volatility window.",
-    "OVERLAP":  "Peak liquidity. Decisive moves on all crypto. Best hour for XBI.",
-    "OFF-HOURS":"Patience is a position. Review your Apex daily P&L limits.",
+    "TOKYO":    "MBT active overnight. NQ and MES set overnight range - note key levels before NY open.",
+    "LONDON":   "GC most active 3-4am ET at London open. CL range sets early. Watch NQ for gap fill setup.",
+    "NEW YORK": "NQ and MES prime time 9:30-11am ET. CL volatile Wed 10:30am inventory. GC follows dollar.",
+    "OVERLAP":  "Peak volume. NQ trends hard on macro news. CL and GC making decisive moves.",
+    "OFF-HOURS":"MBT only. Do not trade NQ/CL/GC outside RTH without clear catalyst. Guard your $1K limit.",
 }
 
 STARTING_BALANCE = 50_000.0
@@ -196,7 +236,7 @@ SCORE_MAP = {
 # PERSISTENCE
 # ==============================================================
 PERSIST_PATH = pathlib.Path("nigel_state.json")
-STATE_VERSION = "5.3"
+STATE_VERSION = "5.4"
 PERSIST_KEYS = [
     "polygon_key","claude_key","rule_set","notes","signal_feed","ai_feed",
     "whisper_feed","diag_history","bt_cache","traders","last_ai_call",
@@ -307,19 +347,19 @@ if "__nigel_restored__" not in st.session_state:
     for k in PERSIST_KEYS:
         if k in _disk and k not in st.session_state: st.session_state[k] = _disk[k]
     st.session_state["__nigel_restored__"] = True
-    st.session_state["__restore_ts__"] = datetime.now().strftime("%H:%M:%S")# ==============================================================
+    st.session_state["__restore_ts__"] = datetime.now().strftime("%H:%M:%S") # ==============================================================
 # TRADER FACTORY
 # ==============================================================
 def _generate_trade_history(win_rate, rr, risk_pct, n_trades, starting_bal, seed=42):
     rng = random.Random(seed)
     bal = starting_bal; peak = starting_bal; trades = []; equity = [starting_bal]
-    base_prices = {"SOL":150,"AVAX":38,"LINK":16,"SOXL":45,"TQQQ":58,"XBI":82}
+    base_prices = {"NQ":18500,"CL":75,"GC":2350,"MNQ":18500,"MES":5200,"MBT":85000}
     markets_pool = list(base_prices.keys())
     for i in range(n_trades):
         mk = rng.choice(markets_pool)
         direction = rng.choice(["long","short"])
         risk_amt = bal * risk_pct
-        entry = base_prices[mk] * (1 + rng.uniform(-0.08, 0.08))
+        entry = base_prices[mk] * (1 + rng.uniform(-0.04, 0.04))
         stop_dist = entry * MARKETS[mk]["stop"]
         units = risk_amt / max(stop_dist, 1e-9)
         tp = entry + stop_dist*rr if direction=="long" else entry - stop_dist*rr
@@ -359,25 +399,25 @@ DEFAULT_TRADERS = [
                  0.005,2.5,65,True,"I trade once and trade right.",18,63,11),
     _make_trader("MOMENTUM","M","Rides breakouts and trend continuation aggressively",
                  0.015,2.0,52,False,"The trend is my only edge.",42,54,22),
-    _make_trader("CONTRARIAN","X","Fades extremes - buys oversold, sells overbought",
-                 0.020,1.8,45,False,"When others panic, I act.",35,50,33),
-    _make_trader("SCALPER","S","High-frequency micro-positions - small wins, tight stops",
+    _make_trader("CONTRARIAN","X","Fades extremes - buys oversold sells overbought",
+                 0.020,1.8,45,False,"When others panic I act.",35,50,33),
+    _make_trader("SCALPER","S","High-frequency micro-positions - small wins tight stops",
                  0.008,1.4,50,False,"A hundred small edges compound into one large fortune.",87,61,44),
     _make_trader("MACRO","R","Slow macro thesis trades - holds positions over sessions",
                  0.015,3.5,60,True,"I don't trade noise. I trade the story beneath the price.",12,67,55),
-    _make_trader("ALGOBOT","A","Pure systematic - no discretion, rules-only execution",
+    _make_trader("ALGOBOT","A","Pure systematic - no discretion rules-only execution",
                  0.010,2.2,55,False,"Emotion is a bug. My only input is the signal.",61,57,66),
 ]
 
 # ==============================================================
-# SESSION DEFAULTS
+# DEFAULTS
 # ==============================================================
 DEFAULTS = {
     "polygon_key":"","claude_key":"","notes":[],"signal_feed":[],
     "last_ai_call":0.0,"last_whisper_call":0.0,"rule_set":[],"bt_cache":{},
     "ai_feed":[],"diag_history":[],"whisper_feed":[],"always_on":True,
     "refresh_interval":60,"last_refresh":0.0,
-    "selected_markets":["SOL","SOXL","AVAX","LINK"],
+    "selected_markets":["NQ","CL","GC","MBT"],
     "shield_active":False,"traders":DEFAULT_TRADERS,"account_size":50_000,
     "rr_ratio":2.0,"council_history":[],
     "apex_cumulative_pnl":0.0,"apex_daily_pnl":0.0,"apex_last_day":"",
@@ -398,9 +438,11 @@ if not st.session_state["polygon_key"]:
     <div style='font-family:Cinzel,serif;font-size:3.5rem;font-weight:900;letter-spacing:.4em;
     color:#fff;margin-bottom:6px;'>NIGEL</div>
     <div style='font-family:Cormorant Garamond,serif;font-style:italic;color:#5a5570;
-    font-size:1rem;letter-spacing:.2em;margin-bottom:4px;'>Private Trading Intelligence v5.3</div>
-    <div style='font-family:JetBrains Mono,monospace;font-size:10px;color:rgba(255,149,0,0.7);
-    letter-spacing:.15em;margin-bottom:40px;'>APEX TRADER FUNDING $50K EDITION</div>
+    font-size:1rem;letter-spacing:.2em;margin-bottom:4px;'>Private Trading Intelligence v5.4</div>
+    <div style='font-family:JetBrains Mono,monospace;font-size:10px;color:rgba(255,149,0,0.8);
+    letter-spacing:.15em;margin-bottom:4px;'>APEX NINJATRADER EDITION</div>
+    <div style='font-family:JetBrains Mono,monospace;font-size:10px;color:#5a5570;
+    letter-spacing:.1em;margin-bottom:40px;'>NQ - CL - GC - MNQ - MES - MBT</div>
     <div style='background:#09080f;border:1px solid rgba(201,168,76,0.2);border-radius:2px;
     padding:36px 48px;max-width:480px;width:100%;'>
     <div style='font-family:Cinzel,serif;font-size:11px;letter-spacing:.12em;color:#c9a84c;
@@ -432,12 +474,12 @@ def fetch_crypto_price(cg_id, days=45, fallback=50.0):
         closes = [p[1] for p in r["prices"]]
         return {"closes":closes,"price":closes[-1],"chg":(closes[-1]-closes[-2])/closes[-2]*100,"ok":True}
     except Exception:
-        return {"closes":[fallback]*30,"price":fallback,"chg":0.4,"ok":False}
+        return {"closes":[fallback]*45,"price":fallback,"chg":0.2,"ok":False}
 
 
 @st.cache_data(ttl=60)
 def fetch_binance_live(sym):
-    sym_map = {"SOL":"SOLUSDT","AVAX":"AVAXUSDT","LINK":"LINKUSDT","BTC":"BTCUSDT","ETH":"ETHUSDT"}
+    sym_map = {"MBT":"BTCUSDT"}
     bsym = sym_map.get(sym)
     if not bsym: return None
     try:
@@ -459,9 +501,9 @@ def fetch_polygon_data(ticker, key, days=60):
         closes = [r["c"] for r in d["results"]]
         return {"closes":closes,"price":closes[-1],"chg":(closes[-1]-closes[-2])/closes[-2]*100,"ok":True}
     except Exception:
-        base = {"SOXL":45,"TQQQ":58,"XBI":82}
-        p = base.get(ticker, 50)
-        return {"closes":[p]*30,"price":p,"chg":0.2,"ok":False}
+        base = {"QQQ":490,"USO":70,"GLD":235,"SPY":520}
+        p = base.get(ticker, 100)
+        return {"closes":[p]*45,"price":p,"chg":0.2,"ok":False}
 
 
 @st.cache_data(ttl=300)
@@ -474,7 +516,7 @@ def fetch_fear_greed():
 
 @st.cache_data(ttl=30)
 def fetch_order_flow(sym, limit=500):
-    sym_map = {"SOL":"SOLUSDT","AVAX":"AVAXUSDT","LINK":"LINKUSDT","BTC":"BTCUSDT","ETH":"ETHUSDT"}
+    sym_map = {"MBT":"BTCUSDT"}
     bsym = sym_map.get(sym)
     if not bsym:
         return {"ok":False,"flow_ratio":0.5,"flow_score":0,"buy_vol":0,
@@ -506,6 +548,7 @@ def fetch_order_flow(sym, limit=500):
     except Exception:
         return {"ok":False,"flow_ratio":0.5,"flow_score":0,"buy_vol":0,
                 "sell_vol":0,"momentum":False,"verdict":"FETCH ERROR","price_chg_pct":0}
+
 
 # ==============================================================
 # INDICATORS
@@ -545,8 +588,7 @@ def atr_series(closes, highs, lows, n=14):
 def bb_bands(closes, n=20, k=2.0):
     mid=[]; upper=[]; lower=[]; pct=[]
     for i in range(n-1,len(closes)):
-        window = closes[i-n+1:i+1]
-        m = sum(window)/n
+        window = closes[i-n+1:i+1]; m = sum(window)/n
         sd = (sum((v-m)**2 for v in window)/n)**0.5
         mid.append(m); upper.append(m+k*sd); lower.append(m-k*sd)
         pct.append((closes[i]-lower[-1])/(upper[-1]-lower[-1]+1e-9))
@@ -596,9 +638,9 @@ def detect_divergence(closes, rsi_vals, lookback=10):
             try:
                 prl = prev_r[prev_c.index(min(prev_c))]; prh = prev_r[prev_c.index(max(prev_c))]
                 if min(c_slice)<min(prev_c) and r_slice[pli]>prl+3:
-                    result["bull_div"]=True; result["desc"]="BULL DIV - Price lower low, RSI did not"
+                    result["bull_div"]=True; result["desc"]="BULL DIV - Price lower low RSI did not"
                 elif max(c_slice)>max(prev_c) and r_slice[phi]<prh-3:
-                    result["bear_div"]=True; result["desc"]="BEAR DIV - Price higher high, RSI did not"
+                    result["bear_div"]=True; result["desc"]="BEAR DIV - Price higher high RSI did not"
             except (ValueError,IndexError): pass
     if len(closes)>=26:
         macd_s=[]
@@ -619,8 +661,7 @@ def scan_patterns(closes, highs=None, lows=None):
     patterns = []
     if len(closes) < 10: return patterns
     h = highs or [c*1.005 for c in closes]
-    l = lows or [c*0.995 for c in closes]
-    c = closes
+    l = lows or [c*0.995 for c in closes]; c = closes
     if h[-1]>h[-3]>h[-5] and l[-1]>l[-3]>l[-5]: patterns.append("HH/HL STRUCTURE")
     if h[-1]<h[-3]<h[-5] and l[-1]<l[-3]<l[-5]: patterns.append("LH/LL STRUCTURE")
     if h[-1]<h[-2] and l[-1]>l[-2]: patterns.append("INSIDE BAR")
@@ -677,8 +718,7 @@ def volatility_regime(closes, window=20):
     rv_series = []
     for i in range(window,len(rets)+1):
         rv_series.append(np.std(rets[i-window:i])*math.sqrt(252)*100)
-    rv_now = rv_series[-1]
-    rv_5d = np.mean([r**2 for r in rets[-5:]])**0.5*math.sqrt(252)*100
+    rv_now = rv_series[-1]; rv_5d = np.mean([r**2 for r in rets[-5:]])**0.5*math.sqrt(252)*100
     rank = sum(1 for v in rv_series if v<=rv_now)/len(rv_series)*100
     if rv_now>rv_series[-2]*1.15: forecast="EXPANDING"
     elif rv_now<rv_series[-2]*0.88: forecast="CONTRACTING"
@@ -688,13 +728,10 @@ def volatility_regime(closes, window=20):
 
 def compute_liquidity_zones(closes, n_bins=20):
     if not closes or len(closes)<30:
-        return {"hvn":[],"lvn":[],"poc":None,"liq_score":0,
-                "zone_type":"NEUTRAL","dist_to_poc_pct":0,"current_zone_density":0}
-    arr = np.array(closes)
-    p_min,p_max = float(arr.min()),float(arr.max())
+        return {"hvn":[],"lvn":[],"poc":None,"liq_score":0,"zone_type":"NEUTRAL","dist_to_poc_pct":0,"current_zone_density":0}
+    arr = np.array(closes); p_min,p_max = float(arr.min()),float(arr.max())
     if p_max<=p_min:
-        return {"hvn":[],"lvn":[],"poc":None,"liq_score":0,
-                "zone_type":"NEUTRAL","dist_to_poc_pct":0,"current_zone_density":0}
+        return {"hvn":[],"lvn":[],"poc":None,"liq_score":0,"zone_type":"NEUTRAL","dist_to_poc_pct":0,"current_zone_density":0}
     bin_edges = np.linspace(p_min,p_max,n_bins+1)
     counts,_ = np.histogram(arr,bins=bin_edges)
     bin_centers = (bin_edges[:-1]+bin_edges[1:])/2
@@ -711,14 +748,11 @@ def compute_liquidity_zones(closes, n_bins=20):
     if cur_density<=0.25: zone_type="LVN_BREAKOUT"; liq_score=18
     elif cur_density>=0.70: zone_type="HVN_CHOP"; liq_score=5
     else:
-        if cur_bin>0 and density[cur_bin-1]>=0.70 and cur_density<0.50:
-            zone_type="HVN_REJECT_UP"; liq_score=12
-        elif cur_bin<n_bins-1 and density[cur_bin+1]>=0.70 and cur_density<0.50:
-            zone_type="HVN_REJECT_DOWN"; liq_score=12
+        if cur_bin>0 and density[cur_bin-1]>=0.70 and cur_density<0.50: zone_type="HVN_REJECT_UP"; liq_score=12
+        elif cur_bin<n_bins-1 and density[cur_bin+1]>=0.70 and cur_density<0.50: zone_type="HVN_REJECT_DOWN"; liq_score=12
         else: zone_type="NEUTRAL"; liq_score=7
-    return {"hvn":hvn,"lvn":lvn,"poc":poc,"liq_score":liq_score,
-            "zone_type":zone_type,"dist_to_poc_pct":round(dist_to_poc,2),
-            "current_zone_density":round(cur_density,3)}
+    return {"hvn":hvn,"lvn":lvn,"poc":poc,"liq_score":liq_score,"zone_type":zone_type,
+            "dist_to_poc_pct":round(dist_to_poc,2),"current_zone_density":round(cur_density,3)}
 
 
 def ks_regime_shift(closes, recent_n=10, baseline_n=30):
@@ -732,20 +766,17 @@ def ks_regime_shift(closes, recent_n=10, baseline_n=30):
     cdf_r = np.searchsorted(np.sort(recent),combined,'right')/len(recent)
     cdf_b = np.searchsorted(np.sort(baseline),combined,'right')/len(baseline)
     ks_stat = float(np.max(np.abs(cdf_r-cdf_b)))
-    n1,n2 = len(recent),len(baseline)
-    en = math.sqrt(n1*n2/(n1+n2))
+    n1,n2 = len(recent),len(baseline); en = math.sqrt(n1*n2/(n1+n2))
     lam = (en+0.12+0.11/en)*ks_stat
     p_value = 0.0
     for j in range(1,101):
-        term = ((-1)**(j-1))*math.exp(-2*lam*lam*j*j)
-        p_value += term
+        term = ((-1)**(j-1))*math.exp(-2*lam*lam*j*j); p_value += term
         if abs(term)<1e-10: break
     p_value = max(0.0,min(1.0,2*p_value))
     if p_value>0.10: verdict="STABLE"; stable=True; trust=True
     elif p_value>0.01: verdict="SHIFTING"; stable=False; trust=False
     else: verdict="BROKEN"; stable=False; trust=False
-    return {"ks_stat":round(ks_stat,3),"p_value":round(p_value,4),
-            "regime_stable":stable,"verdict":verdict,"trust_fitness":trust} # ==============================================================
+    return {"ks_stat":round(ks_stat,3),"p_value":round(p_value,4),"regime_stable":stable,"verdict":verdict,"trust_fitness":trust} # ==============================================================
 # SMART MONEY FOOTPRINTS
 # ==============================================================
 def find_rejection_blocks(closes, highs=None, lows=None, lookback=20):
@@ -806,10 +837,10 @@ def detect_smt_divergence(closes_a, closes_b, name_a, name_b, lookback=10):
     a_hh=max(ar)>max(ap); b_hh=max(br)>max(bp)
     a_ll=min(ar)<min(ap); b_ll=min(br)<min(bp)
     smt=None; desc=""; score=0
-    if a_hh and not b_hh: smt="BEAR_SMT"; desc=f"{name_a} new high - {name_b} did not"; score=10
-    elif b_hh and not a_hh: smt="BEAR_SMT"; desc=f"{name_b} new high - {name_a} did not"; score=10
-    elif a_ll and not b_ll: smt="BULL_SMT"; desc=f"{name_a} new low - {name_b} held"; score=10
-    elif b_ll and not a_ll: smt="BULL_SMT"; desc=f"{name_b} new low - {name_a} held"; score=10
+    if a_hh and not b_hh: smt="BEAR_SMT"; desc=f"{name_a} new high - {name_b} did not confirm"; score=10
+    elif b_hh and not a_hh: smt="BEAR_SMT"; desc=f"{name_b} new high - {name_a} did not confirm"; score=10
+    elif a_ll and not b_ll: smt="BULL_SMT"; desc=f"{name_a} new low - {name_b} held higher"; score=10
+    elif b_ll and not a_ll: smt="BULL_SMT"; desc=f"{name_b} new low - {name_a} held higher"; score=10
     return {"smt":smt,"desc":desc,"smt_score":score,"pair":f"{name_a}/{name_b}"}
 
 
@@ -821,21 +852,18 @@ def compute_full_signal(closes, highs=None, lows=None, volumes=None, rules=None)
              "atr_pct":0,"bb_pct":50,"stoch_k":50,"mom":0,"vol_surge":1,"score":0,
              "long_pts":0,"short_pts":0,"reasons":[],"rule_block":False,
              "stop":None,"target":None,"ema8":0,"ema21":0,"ema50":0,
-             "divergence":{"bull_div":False,"bear_div":False,"desc":"",
-                           "macd_bull":False,"macd_bear":False,"macd_desc":""},
-             "regime":{"regime":"UNKNOWN"},"patterns":[],"vol_regime":{"rv":0},
-             "macd":0,"macd_signal":0,"rsi7":50}
+             "divergence":{"bull_div":False,"bear_div":False,"desc":"","macd_bull":False,"macd_bear":False,"macd_desc":""},
+             "regime":{"regime":"UNKNOWN"},"patterns":[],"vol_regime":{"rv":0},"macd":0,"macd_signal":0,"rsi7":50}
     if not closes or len(closes)<22: return empty
     price=closes[-1]
-    e8=ema_series(closes,8);   e8v=e8[-1];  e8p=e8[-2] if len(e8)>1 else e8v
+    e8=ema_series(closes,8); e8v=e8[-1]; e8p=e8[-2] if len(e8)>1 else e8v
     e21=ema_series(closes,21); e21v=e21[-1]
     e50=ema_series(closes,50) if len(closes)>=50 else ema_series(closes,21); e50v=e50[-1]
-    e3=ema_series(closes,3);   e3v=e3[-1];  e3p=e3[-2] if len(e3)>1 else e3v
+    e3=ema_series(closes,3); e3v=e3[-1]; e3p=e3[-2] if len(e3)>1 else e3v
     e12v=ema_series(closes,12)[-1]
     e26v=ema_series(closes,26)[-1] if len(closes)>=26 else closes[-1]
     macd=e12v-e26v
-    macd_p=(ema_series(closes[:-1],12)[-1]-ema_series(closes[:-1],26)[-1]
-            if len(closes[:-1])>=26 else macd)
+    macd_p=(ema_series(closes[:-1],12)[-1]-ema_series(closes[:-1],26)[-1] if len(closes[:-1])>=26 else macd)
     macd_sl=ema_series([macd]*9,9)[-1]
     rsi_arr=rsi_full(closes,14); rsi_val=next((v for v in reversed(rsi_arr) if v is not None),50)
     rsi7_arr=rsi_full(closes,7); rsi7_val=next((v for v in reversed(rsi7_arr) if v is not None),50)
@@ -844,11 +872,9 @@ def compute_full_signal(closes, highs=None, lows=None, volumes=None, rules=None)
     if len(closes)>=14:
         lo14=min(closes[-14:]); hi14=max(closes[-14:])
         stoch_k=100*(price-lo14)/(hi14-lo14+1e-9)
-        stoch_prev=(100*(closes[-2]-min(closes[-16:-2]))/(max(closes[-16:-2])-min(closes[-16:-2])+1e-9)
-                    if len(closes)>=16 else stoch_k)
+        stoch_prev=(100*(closes[-2]-min(closes[-16:-2]))/(max(closes[-16:-2])-min(closes[-16:-2])+1e-9) if len(closes)>=16 else stoch_k)
     else: stoch_k=stoch_prev=50
-    h_arr=highs or [c*1.005 for c in closes]
-    l_arr=lows  or [c*0.995 for c in closes]
+    h_arr=highs or [c*1.005 for c in closes]; l_arr=lows or [c*0.995 for c in closes]
     atr_arr=atr_series(closes,h_arr,l_arr,14)
     atr_val=next((v for v in reversed(atr_arr) if v is not None),price*0.01)
     atr_pct=atr_val/price*100
@@ -888,9 +914,9 @@ def compute_full_signal(closes, highs=None, lows=None, volumes=None, rules=None)
         if long_pts>short_pts: long_pts+=2; reasons.append(f"Volume surge {vol_surge:.1f}x confirms")
         elif short_pts>long_pts: short_pts+=2; reasons.append(f"Volume surge {vol_surge:.1f}x confirms")
     div=detect_divergence(closes,rsi_arr)
-    if div["bull_div"]:  long_pts+=4;  reasons.append("RSI Bullish divergence")
-    if div["bear_div"]:  short_pts+=4; reasons.append("RSI Bearish divergence")
-    if div["macd_bull"]: long_pts+=3;  reasons.append("MACD Bullish divergence")
+    if div["bull_div"]: long_pts+=4; reasons.append("RSI Bullish divergence")
+    if div["bear_div"]: short_pts+=4; reasons.append("RSI Bearish divergence")
+    if div["macd_bull"]: long_pts+=3; reasons.append("MACD Bullish divergence")
     if div["macd_bear"]: short_pts+=3; reasons.append("MACD Bearish divergence")
     rule_block=False
     for rule in (rules or []):
@@ -906,18 +932,23 @@ def compute_full_signal(closes, highs=None, lows=None, volumes=None, rules=None)
             except Exception: pass
         if rt=="vol_min" and vol_surge<rv: rule_block=True; reasons.append("Rule: Volume below minimum")
         if rt=="trend_only":
-            if long_pts>short_pts and not (e8v>e21v>e50v): rule_block=True; reasons.append("Rule: Trend-only, EMAs not aligned")
-            if short_pts>long_pts and not (e8v<e21v<e50v): rule_block=True; reasons.append("Rule: Trend-only, EMAs not aligned")
+            if long_pts>short_pts and not (e8v>e21v>e50v): rule_block=True; reasons.append("Rule: Trend-only EMAs not aligned")
+            if short_pts>long_pts and not (e8v<e21v<e50v): rule_block=True; reasons.append("Rule: Trend-only EMAs not aligned")
         if rt=="atr_max" and atr_pct>rv: rule_block=True; reasons.append(f"Rule: ATR {atr_pct:.1f}% too volatile")
         if rt=="apex_daily_guard":
             daily_left=APEX_CONFIG["daily_loss_limit"]+st.session_state.get("apex_daily_pnl",0)
             if daily_left<rv: rule_block=True; reasons.append(f"Apex: less than ${rv:.0f} daily headroom")
+        if rt=="no_rth":
+            try:
+                now_et=datetime.now(ZoneInfo("America/New_York")); hr=now_et.hour
+                if not (9<=hr<16): rule_block=True; reasons.append("Rule: Outside RTH 9:30am-4pm ET")
+            except Exception: pass
     score=long_pts-short_pts
     if rule_block or abs(score)<3: sig="HOLD"; conf=30
     elif score>=10: sig="STRONG BUY"; conf=min(88,55+score*2)
-    elif score>=5:  sig="BUY"; conf=min(76,44+score*2)
+    elif score>=5: sig="BUY"; conf=min(76,44+score*2)
     elif score<=-10: sig="STRONG SELL"; conf=min(88,55+abs(score)*2)
-    elif score<=-5:  sig="SELL"; conf=min(76,44+abs(score)*2)
+    elif score<=-5: sig="SELL"; conf=min(76,44+abs(score)*2)
     elif rsi_val<28: sig="OVERSOLD"; conf=68
     elif rsi_val>72: sig="OVERBOUGHT"; conf=66
     else: sig="HOLD"; conf=30
@@ -1003,10 +1034,8 @@ def council_vote(traders, sig):
     for tr in traders:
         v=trader_vote(tr,sig); votes[v]+=1; voters[v].append(tr["name"])
     total=sum(votes.values())
-    if votes["long"]>votes["short"] and votes["long"]>votes["hold"]:
-        verdict="LONG"; strength=votes["long"]/total*100
-    elif votes["short"]>votes["long"] and votes["short"]>votes["hold"]:
-        verdict="SHORT"; strength=votes["short"]/total*100
+    if votes["long"]>votes["short"] and votes["long"]>votes["hold"]: verdict="LONG"; strength=votes["long"]/total*100
+    elif votes["short"]>votes["long"] and votes["short"]>votes["hold"]: verdict="SHORT"; strength=votes["short"]/total*100
     else: verdict="STAND"; strength=votes["hold"]/total*100
     return {**votes,"verdict":verdict,"strength":round(strength,0),"voters":voters}
 
@@ -1014,7 +1043,7 @@ def council_vote(traders, sig):
 def quick_fitness(closes, mk, risk_pct, rr, min_conf, name=""):
     if not closes or len(closes)<35: return 0.0
     bal=1000.0; peak=1000.0; wins=losses=0; pos=None
-    stop_mult=MARKETS.get(mk,{}).get("stop",0.02)
+    stop_mult=MARKETS.get(mk,{}).get("stop",0.015)
     for i in range(max(22,len(closes)-60), len(closes)):
         sig=compute_full_signal(closes[:i+1]); price=closes[i]
         if pos:
@@ -1043,8 +1072,7 @@ def quick_fitness(closes, mk, risk_pct, rr, min_conf, name=""):
 
 
 def update_trader_fitness(tr, all_market_closes):
-    scores={mk:quick_fitness(closes,mk,tr["risk_pct"],tr["rr"],tr["min_conf"],tr.get("name",""))
-            for mk,closes in all_market_closes.items()}
+    scores={mk:quick_fitness(closes,mk,tr["risk_pct"],tr["rr"],tr["min_conf"],tr.get("name","")) for mk,closes in all_market_closes.items()}
     if scores:
         avg=round(np.mean(list(scores.values())),1)
         tr["fitness"]=avg; tr["fitness_history"]=(tr.get("fitness_history",[])+[avg])[-30:]
@@ -1058,16 +1086,14 @@ def adapt_trader(tr):
     if len(trades)<10: return None
     recent=trades[-10:]; wins=sum(1 for t in recent if t.get("result")=="win")
     wr=wins/10*100; base=tr.get("base_min_conf",tr["min_conf"]); current=tr["min_conf"]
-    if wr<35 and current<base+12: new=current+2; msg=f"Low WR {wr:.0f}% - raised min_conf to {new}"
-    elif wr>65 and current>base-8: new=current-1; msg=f"High WR {wr:.0f}% - lowered min_conf to {new}"
-    elif abs(current-base)>3 and 40<=wr<=60:
-        new=current+(1 if current<base else -1); msg=f"WR {wr:.0f}% normal - drifting toward base ({new})"
+    if wr<35 and current<base+12: new=current+2; msg=f"Low WR {wr:.0f}% raised min_conf to {new}"
+    elif wr>65 and current>base-8: new=current-1; msg=f"High WR {wr:.0f}% lowered min_conf to {new}"
+    elif abs(current-base)>3 and 40<=wr<=60: new=current+(1 if current<base else -1); msg=f"WR {wr:.0f}% drifting toward base ({new})"
     else: return None
     new=max(40,min(80,new))
     if new!=current:
         tr["min_conf"]=new
-        tr.setdefault("adapt_log",[]).append({"time":datetime.now().strftime("%H:%M:%S"),
-            "wr":round(wr,0),"old":current,"new":new,"msg":msg})
+        tr.setdefault("adapt_log",[]).append({"time":datetime.now().strftime("%H:%M:%S"),"wr":round(wr,0),"old":current,"new":new,"msg":msg})
         tr["adapt_log"]=tr["adapt_log"][-20:]
         return msg
     return None
@@ -1077,88 +1103,66 @@ def adapt_trader(tr):
 # APEX ENFORCEMENT
 # ==============================================================
 def check_apex_limits():
-    now_et=datetime.now(ZoneInfo("America/New_York"))
-    today_str=now_et.strftime("%Y-%m-%d")
+    now_et=datetime.now(ZoneInfo("America/New_York")); today_str=now_et.strftime("%Y-%m-%d")
     if st.session_state.get("apex_last_day","")!=today_str:
-        prev_day=st.session_state.get("apex_last_day","")
-        prev_pnl=st.session_state.get("apex_daily_pnl",0.0)
+        prev_day=st.session_state.get("apex_last_day",""); prev_pnl=st.session_state.get("apex_daily_pnl",0.0)
         if prev_day:
-            hist=st.session_state.get("apex_daily_history",[])
-            hist.append({"date":prev_day,"pnl":round(prev_pnl,2)})
+            hist=st.session_state.get("apex_daily_history",[]); hist.append({"date":prev_day,"pnl":round(prev_pnl,2)})
             st.session_state["apex_daily_history"]=hist[-60:]
-        st.session_state["apex_daily_pnl"]=0.0
-        st.session_state["apex_last_day"]=today_str
-        state_save()
-    cum_pnl=st.session_state.get("apex_cumulative_pnl",0.0)
-    daily_pnl=st.session_state.get("apex_daily_pnl",0.0)
+        st.session_state["apex_daily_pnl"]=0.0; st.session_state["apex_last_day"]=today_str; state_save()
+    cum_pnl=st.session_state.get("apex_cumulative_pnl",0.0); daily_pnl=st.session_state.get("apex_daily_pnl",0.0)
     apex_equity=APEX_CONFIG["account_size"]+cum_pnl
     hw=st.session_state.get("apex_high_water",APEX_CONFIG["account_size"])
-    if apex_equity>hw:
-        hw=apex_equity; st.session_state["apex_high_water"]=hw
-    trailing_dd=hw-apex_equity
-    trading_days=st.session_state.get("apex_trading_days",[])
+    if apex_equity>hw: hw=apex_equity; st.session_state["apex_high_water"]=hw
+    trailing_dd=hw-apex_equity; trading_days=st.session_state.get("apex_trading_days",[])
     target_reached=cum_pnl>=APEX_CONFIG["profit_target"]
     locked=False; lock_reason=""
-    if daily_pnl<=-APEX_CONFIG["daily_loss_limit"]:
-        locked=True; lock_reason=f"Daily loss limit hit: ${abs(daily_pnl):,.0f} lost today"
-    elif trailing_dd>=APEX_CONFIG["trailing_drawdown"]:
-        locked=True; lock_reason=f"Trailing drawdown limit hit: ${trailing_dd:,.0f} below peak"
+    if daily_pnl<=-APEX_CONFIG["daily_loss_limit"]: locked=True; lock_reason=f"Daily loss limit hit: ${abs(daily_pnl):,.0f} lost today"
+    elif trailing_dd>=APEX_CONFIG["trailing_drawdown"]: locked=True; lock_reason=f"Trailing drawdown limit: ${trailing_dd:,.0f} below peak"
     warnings=[]
-    warn_at=APEX_CONFIG["warn_at_pct"]
     if not locked:
         dl_used=abs(min(0,daily_pnl))
-        if dl_used>=APEX_CONFIG["daily_loss_limit"]*warn_at:
-            pct=int(dl_used/APEX_CONFIG["daily_loss_limit"]*100)
-            warnings.append(f"Daily loss {pct}% used - ${APEX_CONFIG['daily_loss_limit']-dl_used:.0f} remaining")
-        if trailing_dd>=APEX_CONFIG["trailing_drawdown"]*warn_at:
-            pct=int(trailing_dd/APEX_CONFIG["trailing_drawdown"]*100)
-            warnings.append(f"Trailing drawdown {pct}% used - ${APEX_CONFIG['trailing_drawdown']-trailing_dd:.0f} remaining")
+        if dl_used>=APEX_CONFIG["daily_loss_limit"]*APEX_CONFIG["warn_at_pct"]:
+            warnings.append(f"Daily loss {int(dl_used/APEX_CONFIG['daily_loss_limit']*100)}% used - ${APEX_CONFIG['daily_loss_limit']-dl_used:.0f} remaining")
+        if trailing_dd>=APEX_CONFIG["trailing_drawdown"]*APEX_CONFIG["warn_at_pct"]:
+            warnings.append(f"Trailing DD {int(trailing_dd/APEX_CONFIG['trailing_drawdown']*100)}% used - ${APEX_CONFIG['trailing_drawdown']-trailing_dd:.0f} remaining")
         if len(trading_days)<APEX_CONFIG["min_trading_days"]:
             warnings.append(f"Only {len(trading_days)}/{APEX_CONFIG['min_trading_days']} trading days completed")
     prev_locked=st.session_state.get("apex_locked",False)
     if locked!=prev_locked:
-        st.session_state["apex_locked"]=locked
-        st.session_state["apex_lock_reason"]=lock_reason
+        st.session_state["apex_locked"]=locked; st.session_state["apex_lock_reason"]=lock_reason
         for tr in TRADERS: tr["paused"]=locked
         state_save()
-    return {
-        "locked":locked,"lock_reason":lock_reason,"warnings":warnings,
-        "apex_equity":round(apex_equity,2),"high_water":round(hw,2),
-        "trailing_dd":round(trailing_dd,2),"daily_pnl":round(daily_pnl,2),
-        "cumulative_pnl":round(cum_pnl,2),"trading_days":len(trading_days),
-        "target_reached":target_reached,
-        "pct_to_target":min(100,max(0,cum_pnl/APEX_CONFIG["profit_target"]*100)),
-        "daily_loss_pct":min(100,max(0,abs(min(0,daily_pnl))/APEX_CONFIG["daily_loss_limit"]*100)),
-        "trailing_dd_pct":min(100,max(0,trailing_dd/APEX_CONFIG["trailing_drawdown"]*100)),
-    }
+    return {"locked":locked,"lock_reason":lock_reason,"warnings":warnings,
+            "apex_equity":round(apex_equity,2),"high_water":round(hw,2),
+            "trailing_dd":round(trailing_dd,2),"daily_pnl":round(daily_pnl,2),
+            "cumulative_pnl":round(cum_pnl,2),"trading_days":len(trading_days),
+            "target_reached":target_reached,
+            "pct_to_target":min(100,max(0,cum_pnl/APEX_CONFIG["profit_target"]*100)),
+            "daily_loss_pct":min(100,max(0,abs(min(0,daily_pnl))/APEX_CONFIG["daily_loss_limit"]*100)),
+            "trailing_dd_pct":min(100,max(0,trailing_dd/APEX_CONFIG["trailing_drawdown"]*100))}
 
 
 def _apex_record_trade(pnl):
-    now_et=datetime.now(ZoneInfo("America/New_York"))
-    today_str=now_et.strftime("%Y-%m-%d")
+    now_et=datetime.now(ZoneInfo("America/New_York")); today_str=now_et.strftime("%Y-%m-%d")
     if st.session_state.get("apex_last_day","")!=today_str:
-        st.session_state["apex_daily_pnl"]=0.0
-        st.session_state["apex_last_day"]=today_str
+        st.session_state["apex_daily_pnl"]=0.0; st.session_state["apex_last_day"]=today_str
     st.session_state["apex_cumulative_pnl"]=st.session_state.get("apex_cumulative_pnl",0.0)+pnl
     st.session_state["apex_daily_pnl"]=st.session_state.get("apex_daily_pnl",0.0)+pnl
     days=st.session_state.get("apex_trading_days",[])
-    if today_str not in days:
-        st.session_state["apex_trading_days"]=days+[today_str]
+    if today_str not in days: st.session_state["apex_trading_days"]=days+[today_str]
 
 
 def simulate_trader(tr, market_signals):
     if tr.get("paused",False): return
     pos=tr.get("open_pos")
-    if pos is not None and not _is_valid_position(pos):
-        tr["open_pos"]=None; state_save(); pos=None
+    if pos is not None and not _is_valid_position(pos): tr["open_pos"]=None; state_save(); pos=None
     if pos is not None:
         mk=pos.get("market","")
-        if not mk or mk not in market_signals:
-            tr["open_pos"]=None; state_save(); return
+        if not mk or mk not in market_signals: tr["open_pos"]=None; state_save(); return
         sig=market_signals.get(mk,{}); p=sig.get("price",pos.get("entry",0))
-        is_long=pos.get("dir")=="long"
-        stop_price=pos.get("stop",0); tp_price=pos.get("tp",0); entry=pos.get("entry",p)
-        units=pos.get("units",0)
+        is_long=pos.get("dir")=="long"; stop_price=pos.get("stop",0); tp_price=pos.get("tp",0)
+        entry=pos.get("entry",p); units=pos.get("units",0)
         pos["bars_in_trade"]=pos.get("bars_in_trade",0)+1
         risk_pu=abs(entry-stop_price) if abs(entry-stop_price)>1e-9 else 1
         r_mult=(p-entry)/risk_pu if is_long else (entry-p)/risk_pu
@@ -1235,39 +1239,38 @@ def simulate_trader(tr, market_signals):
 
 
 # ==============================================================
-# UTILS
+# UTILITIES
 # ==============================================================
 def run_diagnostics(sigs, fg_val):
     per={}; all_scores=[]
     for mk,sig in sigs.items():
         s=0; notes=[]
         conf=sig.get("conf",30)
-        if sig.get("signal")!="HOLD": s+=min(30,conf//3); notes.append(f"Signal +{min(30,conf//3)}")
+        if sig.get("signal")!="HOLD": s+=min(30,conf//3)
         rsi=sig.get("rsi",50)
-        if 35<rsi<65: s+=20; notes.append("RSI optimal +20")
+        if 35<rsi<65: s+=20
         elif 28<rsi<72: s+=10
-        else: notes.append(f"RSI extreme {rsi:.0f}")
         mom=abs(sig.get("mom",0))
-        if mom>0.8: s+=20; notes.append("Strong momentum +20")
+        if mom>0.8: s+=20
         elif mom>0.3: s+=10
         vs=sig.get("vol_surge",1)
-        if vs>1.5: s+=15; notes.append(f"Vol surge {vs:.1f}x +15")
+        if vs>1.5: s+=15
         elif vs>1: s+=7
         bb=sig.get("bb_pct",50); ss=sig.get("signal","HOLD")
         if ss in ("BUY","STRONG BUY","OVERSOLD") and bb<45: s+=15
         elif ss in ("SELL","STRONG SELL","OVERBOUGHT") and bb>55: s+=15
         elif ss!="HOLD": s+=5
-        if sig.get("rule_block"): s=max(0,s-25); notes.append("Rule blocked -25")
+        if sig.get("rule_block"): s=max(0,s-25)
         div=sig.get("divergence",{})
-        if div.get("bull_div") or div.get("macd_bull"): s+=10; notes.append("Div confluence +10")
-        if div.get("bear_div") or div.get("macd_bear"): s+=10; notes.append("Div confluence +10")
+        if div.get("bull_div") or div.get("macd_bull"): s+=10
+        if div.get("bear_div") or div.get("macd_bear"): s+=10
         s=min(100,max(0,s)); all_scores.append(s)
         per[mk]={"score":s,"notes":notes,"dir":ss,"conf":conf}
     return {"per":per,"overall":round(np.mean(all_scores) if all_scores else 0),"fg_score":10 if 20<fg_val<80 else 0}
 
 
 def call_claude(prompt, system, key, max_tokens=900):
-    if not key: return None, "No Claude key"
+    if not key: return None,"No Claude key"
     try:
         r=requests.post("https://api.anthropic.com/v1/messages",
             headers={"x-api-key":key,"anthropic-version":"2023-06-01","Content-Type":"application/json"},
@@ -1279,9 +1282,9 @@ def call_claude(prompt, system, key, max_tokens=900):
     except Exception as e: return None,str(e)
 
 
-NOTES_SYSTEM = "You are Nigel, private trading intelligence for an Apex Trader Funding $50K account. Format: JSON array of 3-4 notes, each with type (watch|buy|sell|info), market (SOL|SOXL|AVAX|LINK|TQQQ|XBI), and text. Max 2 sentences per note. Return ONLY valid JSON."
-AI_ANALYST_SYSTEM = "You are Nigel, senior quant running an Apex Trader Funding $50K account. Rules: $1,000 daily loss limit, $2,500 trailing drawdown, $3,000 profit target. Markets: SOL, SOXL, AVAX, LINK, TQQQ, XBI. Give sharp, specific, actionable analysis under 400 words. Always note which Apex futures proxy to use."
-WHISPER_SYSTEM = "You are Nigel's inner voice. One elegant market observation. Max 20 words. Return ONLY the text."
+NOTES_SYSTEM = "You are Nigel, trading intelligence for an Apex Trader Funding $50K NinjaTrader account. Contracts: NQ (E-mini Nasdaq $20/pt), CL (Crude Oil $1K per $1), GC (Gold $100 per $1), MNQ (Micro Nasdaq $2/pt), MES (Micro SP500 $5/pt), MBT (Micro Bitcoin 0.1BTC). Format: JSON array of 3-4 notes, each with type (watch|buy|sell|info), market, and text. Max 2 sentences. Return ONLY valid JSON."
+AI_ANALYST_SYSTEM = "You are Nigel, senior quant on an Apex Trader Funding $50K NinjaTrader account. Contracts: NQ=$20/pt (50pts=$1K), CL=$1K per $1 move, GC=$100 per $1 (10pt move=$1K), MNQ=$2/pt, MES=$5/pt, MBT=0.1BTC. Apex rules: $1K daily loss limit, $2.5K trailing drawdown, $3K profit target. Daily $1K target: NQ needs 50pts on 1 contract, CL needs $1 move, GC needs $10 move. Give sharp actionable analysis under 400 words with exact point targets and contract counts."
+WHISPER_SYSTEM = "You are Nigel's inner voice. One sharp observation about the current futures market. Max 20 words. Return ONLY the text."
 
 
 def push_note(ntype, market, text):
@@ -1294,20 +1297,20 @@ def generate_notes(sigs, sessions):
     if not CLKEY:
         for mk,sig in sigs.items():
             s=sig.get("signal","HOLD"); m=MARKETS[mk]
-            if s=="STRONG BUY": push_note("buy",mk,f"{m['label']} aligned perfectly. Apex proxy: {m['apex_proxy']}.")
-            elif s=="STRONG SELL": push_note("sell",mk,f"{m['label']} deteriorating. Consider {m['apex_proxy']} short.")
-            elif s=="OVERSOLD": push_note("buy",mk,f"{m['label']} flush complete. Wait one confirming bar.")
-            elif s=="OVERBOUGHT": push_note("watch",mk,f"{m['label']} extended. Protect profits.")
+            if s=="STRONG BUY": push_note("buy",mk,f"{m['label']} ({mk}) aligned. {m['apex_note']}.")
+            elif s=="STRONG SELL": push_note("sell",mk,f"{m['label']} ({mk}) deteriorating on all timeframes.")
+            elif s=="OVERSOLD": push_note("buy",mk,f"{m['label']} flush complete - wait one confirming bar before entry.")
+            elif s=="OVERBOUGHT": push_note("watch",mk,f"{m['label']} extended. Protect profits, avoid chasing.")
             elif s=="BUY": push_note("info",mk,f"{m['label']} building a case for the upside.")
         return
     if time.time()-st.session_state["last_ai_call"]<90: return
     st.session_state["last_ai_call"]=time.time()
-    summaries=" | ".join(f"{MARKETS[k]['label']}: {v['signal']} RSI={v['rsi']:.0f}" for k,v in sigs.items())
+    summaries=" | ".join(f"{MARKETS[k]['label']} ({k}): {v['signal']} RSI={v['rsi']:.0f}" for k,v in sigs.items())
     resp,_=call_claude(f"Markets: {summaries}. Sessions: {', '.join(sessions)}. Generate 4 notes.",NOTES_SYSTEM,CLKEY,600)
     if resp:
         try:
             parsed=json.loads(resp.strip().replace("```json","").replace("```","").strip())
-            for n in parsed: push_note(n.get("type","info"),n.get("market","SOL"),n.get("text",""))
+            for n in parsed: push_note(n.get("type","info"),n.get("market","NQ"),n.get("text",""))
         except Exception: pass
 
 
@@ -1316,7 +1319,7 @@ def generate_whisper(sigs):
     if time.time()-st.session_state["last_whisper_call"]<300: return
     st.session_state["last_whisper_call"]=time.time()
     signals_str=", ".join(f"{k}:{v['signal']}" for k,v in sigs.items())
-    resp,err=call_claude(f"Apex $50K signals: {signals_str}. One whisper.",WHISPER_SYSTEM,CLKEY,60)
+    resp,err=call_claude(f"NinjaTrader futures signals: {signals_str}. One whisper.",WHISPER_SYSTEM,CLKEY,60)
     if resp and not err:
         w=resp.strip().replace('"','').replace("'",'')
         st.session_state["whisper_feed"].insert(0,{"text":w,"time":datetime.now().strftime("%H:%M")})
@@ -1327,25 +1330,23 @@ def build_ai_context(sigs, prices_dict, diag, apex_status):
     now_et=datetime.now(ZoneInfo("America/New_York"))
     lines=[
         f"TIME: {now_et.strftime('%H:%M ET')}",
-        f"APEX: equity=${apex_status['apex_equity']:,.0f} | daily={apex_status['daily_pnl']:+,.0f} | dd=${apex_status['trailing_dd']:,.0f} | profit=${apex_status['cumulative_pnl']:,.0f}",
+        f"APEX: equity=${apex_status['apex_equity']:,.0f} daily={apex_status['daily_pnl']:+,.0f} dd=${apex_status['trailing_dd']:,.0f} profit=${apex_status['cumulative_pnl']:,.0f}",
         f"STATUS: {'LOCKED' if apex_status['locked'] else 'CLEAR'}",
-        f"HEALTH: {diag.get('overall',0)}/100","","SIGNALS:",
+        f"HEALTH: {diag.get('overall',0)}/100","","FUTURES SIGNALS:",
     ]
     for mk,sig in sigs.items():
         m=MARKETS[mk]
-        lines.append(f"  {mk} ({m['apex_proxy']}): {sig['signal']} conf={sig['conf']}% RSI={sig['rsi']} mom={sig['mom']:+.1f}% regime={sig['regime'].get('regime','?')}")
+        lines.append(f"  {mk} ({m['label']} - {m['contract_size']}): {sig['signal']} conf={sig['conf']}% RSI={sig['rsi']} mom={sig['mom']:+.1f}% regime={sig['regime'].get('regime','?')}")
     return "\n".join(lines)
 
 
 def run_backtest_nigel(closes, mk, risk_pct=0.01, rr=2.0, rules=None):
     if not closes or len(closes)<40: return {"error":"Need at least 40 data points"}
-    stop_mult=MARKETS[mk]["stop"]
-    cap=float(st.session_state.get("account_size",50_000))
+    stop_mult=MARKETS[mk]["stop"]; cap=float(st.session_state.get("account_size",50_000))
     bal=cap; peak=cap; trades=[]; equity=[]; pos=None; sim_daily=0.0
     highs=[c*1.005 for c in closes]; lows=[c*0.995 for c in closes]
     for i in range(22,len(closes)):
-        sig=compute_full_signal(closes[:i+1],highs[:i+1],lows[:i+1],None,rules)
-        price=closes[i]
+        sig=compute_full_signal(closes[:i+1],highs[:i+1],lows[:i+1],None,rules); price=closes[i]
         if i%5==0: sim_daily=0.0
         if pos:
             is_long=pos["dir"]=="long"
@@ -1365,16 +1366,14 @@ def run_backtest_nigel(closes, mk, risk_pct=0.01, rr=2.0, rules=None):
             is_sell="SELL" in sig["signal"] or sig["signal"]=="OVERBOUGHT"
             if is_buy or is_sell:
                 d="long" if is_buy else "short"; sd=price*stop_mult
-                stop_p=price-sd if is_buy else price+sd; tp=price+sd*rr if is_buy else price-sd*rr
+                stop_p=price-sd if is_buy else price+sd; tp_p=price+sd*rr if is_buy else price-sd*rr
                 ra=min(bal*risk_pct,APEX_CONFIG["daily_loss_limit"]+sim_daily)
-                if ra>0: pos={"dir":d,"entry":price,"stop":stop_p,"tp":tp,"units":ra/max(sd,1e-9)}
+                if ra>0: pos={"dir":d,"entry":price,"stop":stop_p,"tp":tp_p,"units":ra/max(sd,1e-9)}
         equity.append(bal)
     if not trades: return {"error":"No trades generated"}
     tdf=pd.DataFrame(trades); wins=tdf[tdf["pnl"]>0]; losses=tdf[tdf["pnl"]<=0]
-    wr=len(wins)/len(tdf)*100
-    avg_w=wins["pnl"].mean() if not wins.empty else 0
-    avg_l=losses["pnl"].mean() if not losses.empty else 0
-    pf=abs(avg_w/avg_l) if avg_l!=0 else 99
+    wr=len(wins)/len(tdf)*100; avg_w=wins["pnl"].mean() if not wins.empty else 0
+    avg_l=losses["pnl"].mean() if not losses.empty else 0; pf=abs(avg_w/avg_l) if avg_l!=0 else 99
     eq_s=pd.Series(equity); max_dd=float(((eq_s-eq_s.cummax())/eq_s.cummax()*100).min())
     sharpe=0
     if len(eq_s)>2:
@@ -1402,23 +1401,27 @@ def build_journal_csv():
     rows=[]
     for tr in TRADERS:
         for t in tr.get("trades",[]):
-            rows.append({"Desk":tr["name"],"Market":t.get("market",""),"Direction":t.get("dir",""),
-                "Entry":t.get("entry",""),"Exit":t.get("exit",""),"PnL":t.get("pnl",0),
-                "Result":t.get("result",""),"Reason":t.get("reason",""),
+            mk=t.get("market",""); m=MARKETS.get(mk,{})
+            rows.append({"Desk":tr["name"],"Contract":mk,"Name":m.get("label",""),
+                "Direction":t.get("dir",""),"Entry":t.get("entry",""),"Exit":t.get("exit",""),
+                "PnL":t.get("pnl",0),"Result":t.get("result",""),"Reason":t.get("reason",""),
                 "Time":t.get("time",""),"Confidence":t.get("conf",0),
-                "ApexProxy":MARKETS.get(t.get("market",""),{}).get("apex_proxy","")})
+                "ContractSize":m.get("contract_size","")})
     if not rows: return None
     buf=io.BytesIO(); pd.DataFrame(rows).to_csv(buf,index=False)
     return buf.getvalue()
 
 
 def fmt_price(mk, p):
-    return f"${p:,.0f}" if p>=1000 else f"${p:,.2f}" # ==============================================================
+    if p >= 10000: return f"${p:,.0f}"
+    elif p >= 100: return f"${p:,.2f}"
+    else: return f"${p:,.2f}"# ==============================================================
 # SIDEBAR
 # ==============================================================
 with st.sidebar:
     st.markdown('<div style="font-family:Cinzel,serif;font-weight:900;font-size:1.3rem;letter-spacing:.3em;color:#fff;margin:16px 0 2px;">NIGEL</div>', unsafe_allow_html=True)
-    st.markdown('<div style="font-family:JetBrains Mono,monospace;font-size:9px;color:rgba(255,149,0,0.7);letter-spacing:.12em;margin-bottom:14px;">APEX $50K EDITION</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-family:JetBrains Mono,monospace;font-size:9px;color:rgba(255,149,0,0.8);letter-spacing:.12em;margin-bottom:3px;">APEX NINJATRADER v5.4</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-family:JetBrains Mono,monospace;font-size:9px;color:#5a5570;letter-spacing:.08em;margin-bottom:14px;">NQ CL GC MNQ MES MBT</div>', unsafe_allow_html=True)
     restore_ts=st.session_state.get("__restore_ts__","--")
     state_kb=PERSIST_PATH.stat().st_size/1024 if PERSIST_PATH.exists() else 0
     st.markdown(f'<div class="persist-banner"><div style="font-size:9px;">STATE PERSISTENCE</div><div style="font-size:9px;color:#3a3550;margin-top:2px;">Restored {restore_ts} - {state_kb:.1f} KB</div></div>', unsafe_allow_html=True)
@@ -1428,14 +1431,10 @@ with st.sidebar:
         if st.button("Save Keys"):
             st.session_state["polygon_key"]=np_; st.session_state["claude_key"]=nc_
             state_save(); st.cache_data.clear(); st.rerun()
-    ai_ok=bool(CLKEY.strip()); pol_ok=bool(POLY.strip())
-    pol_color="#1aff8a" if pol_ok else "#ff2d55"
-    ai_color="#1aff8a" if ai_ok else "#ff2d55"
-    pol_icon="OK" if pol_ok else "X"
-    ai_icon="OK" if ai_ok else "X"
-    st.markdown(f'<div style="font-family:JetBrains Mono,monospace;font-size:10px;margin:8px 0;"><span style="color:{pol_color};">{pol_icon} POLYGON</span> &nbsp; <span style="color:{ai_color};">{ai_icon} CLAUDE</span></div>', unsafe_allow_html=True)
+    pol_ok=bool(POLY.strip()); ai_ok=bool(CLKEY.strip())
+    st.markdown(f'<div style="font-family:JetBrains Mono,monospace;font-size:10px;margin:8px 0;"><span style="color:{"#1aff8a" if pol_ok else "#ff2d55"};">{"OK" if pol_ok else "X"} POLYGON</span> &nbsp; <span style="color:{"#1aff8a" if ai_ok else "#ff2d55"};">{"OK" if ai_ok else "X"} CLAUDE</span></div>', unsafe_allow_html=True)
     st.divider()
-    sel=st.multiselect("Instruments",list(MARKETS.keys()),default=st.session_state["selected_markets"])
+    sel=st.multiselect("Contracts",list(MARKETS.keys()),default=st.session_state["selected_markets"])
     if sel: st.session_state["selected_markets"]=sel; state_save()
     new_account=st.number_input("Account ($)",5000,1000000,st.session_state.get("account_size",50_000),1000)
     if new_account!=st.session_state.get("account_size"): st.session_state["account_size"]=new_account; state_save()
@@ -1467,11 +1466,11 @@ with st.sidebar:
     st.divider()
     jcsv=build_journal_csv()
     if jcsv:
-        st.download_button("Download Trade Journal",data=jcsv,
+        st.download_button("Download Journal",data=jcsv,
             file_name=f"nigel_apex_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",mime="text/csv")
     st.caption(f"Updated {datetime.now().strftime('%H:%M:%S')}")
 
-SEL=st.session_state["selected_markets"] or ["SOL","SOXL","AVAX","LINK"]
+SEL=st.session_state["selected_markets"] or ["NQ","CL","GC","MBT"]
 TRADERS=st.session_state["traders"]
 
 # ==============================================================
@@ -1482,8 +1481,7 @@ with st.spinner(""):
     for mk in SEL:
         m=MARKETS[mk]
         if m.get("crypto") and mk in CRYPTO_MAP:
-            cmap=CRYPTO_MAP[mk]
-            bd=fetch_binance_live(mk) or {}
+            cmap=CRYPTO_MAP[mk]; bd=fetch_binance_live(mk) or {}
             cg=fetch_crypto_price(cmap["cg_id"],fallback=cmap["fallback"])
             price=bd.get("price",cg["price"]); chg=bd.get("chg",cg["chg"])
             raw_data[mk]={"closes":cg["closes"],"price":price,"chg":chg,
@@ -1495,12 +1493,10 @@ with st.spinner(""):
         market_signals[mk]=compute_full_signal(raw_data[mk]["closes"],rules=st.session_state.get("rule_set",[]))
         market_signals[mk]["price"]=raw_data[mk]["price"]
         market_signals[mk]["chg"]=raw_data[mk]["chg"]
-    fg_val,fg_label=fetch_fear_greed()
-    diag=run_diagnostics(market_signals,fg_val)
+    fg_val,fg_label=fetch_fear_greed(); diag=run_diagnostics(market_signals,fg_val)
 
 apex_status=check_apex_limits()
 sm_score,sm_label,sm_sessions=smart_money_clock()
-
 liq_per_market={mk:compute_liquidity_zones(raw_data[mk]["closes"]) for mk in SEL}
 ks_per_market={mk:ks_regime_shift(raw_data[mk]["closes"]) for mk in SEL}
 flow_per_market={mk:(fetch_order_flow(mk) if mk in CRYPTO_MAP
@@ -1509,7 +1505,7 @@ flow_per_market={mk:(fetch_order_flow(mk) if mk in CRYPTO_MAP
 rb_per_market={mk:find_rejection_blocks(raw_data[mk]["closes"]) for mk in SEL}
 sweep_per_market={mk:find_liquidity_sweeps(raw_data[mk]["closes"]) for mk in SEL}
 smt_per_market={mk:{"smt":None,"desc":"","smt_score":0,"pair":""} for mk in SEL}
-for a,b in [("SOL","AVAX"),("TQQQ","SOXL")]:
+for a,b in [("NQ","MNQ"),("MES","MNQ")]:
     if a in SEL and b in SEL:
         res=detect_smt_divergence(raw_data[a]["closes"],raw_data[b]["closes"],a,b)
         if res.get("smt"): smt_per_market[a]=res; smt_per_market[b]=res
@@ -1519,17 +1515,14 @@ tqs_per_market={mk:compute_tqs(market_signals[mk],sm_score,
     rb_info=rb_per_market[mk],sweep_info=sweep_per_market[mk],
     smt_info=smt_per_market[mk]) for mk in SEL}
 council_per_market={mk:council_vote(TRADERS,market_signals[mk]) for mk in SEL}
-
 for tr in TRADERS: simulate_trader(tr,market_signals)
 
-fit_ctr=st.session_state.get("__fit_ctr__",0)
-st.session_state["__fit_ctr__"]=fit_ctr+1
+fit_ctr=st.session_state.get("__fit_ctr__",0); st.session_state["__fit_ctr__"]=fit_ctr+1
 if fit_ctr%3==0:
     for tr in TRADERS: update_trader_fitness(tr,{mk:raw_data[mk]["closes"] for mk in SEL})
 
 sessions_now=get_sessions(); session_names=[s for s,_ in sessions_now]
-generate_notes(market_signals,session_names)
-generate_whisper(market_signals)
+generate_notes(market_signals,session_names); generate_whisper(market_signals)
 
 now_ts=time.time()
 if (now_ts-st.session_state["last_refresh"])>=st.session_state["refresh_interval"]:
@@ -1545,7 +1538,9 @@ if (now_ts-st.session_state["last_refresh"])>=st.session_state["refresh_interval
                 "regime":sig.get("regime",{}).get("regime","?"),
                 "div_bull":div.get("bull_div",False),"div_bear":div.get("bear_div",False),
                 "macd_bull":div.get("macd_bull",False),"macd_bear":div.get("macd_bear",False),
-                "tqs":tqs_per_market.get(mk,0),"apex_proxy":MARKETS[mk]["apex_proxy"]})
+                "tqs":tqs_per_market.get(mk,0),
+                "contract_size":MARKETS[mk]["contract_size"],
+                "apex_note":MARKETS[mk]["apex_note"]})
     st.session_state["signal_feed"]=st.session_state["signal_feed"][:80]
     st.session_state["diag_history"].append({"time":datetime.now(),"score":diag["overall"]})
     st.session_state["diag_history"]=st.session_state["diag_history"][-200:]
@@ -1560,15 +1555,15 @@ sm_color="#1aff8a" if sm_score>=75 else "#c9a84c" if sm_score>=50 else "#5a5570"
 utc=datetime.now(ZoneInfo("UTC"))
 ny=utc.astimezone(ZoneInfo("America/New_York"))
 lon=utc.astimezone(ZoneInfo("Europe/London"))
-session_badges="".join(f'<span style="display:inline-block;padding:3px 12px;font-family:Cinzel,serif;font-size:10px;font-weight:700;letter-spacing:.1em;margin-right:6px;background:{c}22;color:{c};border:1px solid {c}44;">{n}</span>' for n,c in sessions_now)
+session_badges="".join(f'<span style="display:inline-block;padding:3px 10px;font-family:Cinzel,serif;font-size:10px;font-weight:700;letter-spacing:.1em;margin-right:6px;background:{c}22;color:{c};border:1px solid {c}44;">{n}</span>' for n,c in sessions_now)
 st.markdown(f"""
 <div class="nigel-masthead">
   <div>
     <div class="nigel-wordmark">NIG<em>E</em>L</div>
-    <div class="nigel-tagline">Private Trading Intelligence v5.3 - Apex Edition - $50K Account - 6 Adaptive Desks</div>
+    <div class="nigel-tagline">Apex NinjaTrader v5.4 - NQ - CL - GC - MNQ - MES - MBT - $50K Account</div>
   </div>
   <div style="text-align:right;">
-    <div style="font-family:JetBrains Mono,monospace;font-size:11px;color:#5a5570;">ET {ny.strftime("%H:%M")} &nbsp;-&nbsp; LDN {lon.strftime("%H:%M")} &nbsp;-&nbsp; UTC {utc.strftime("%H:%M")}</div>
+    <div style="font-family:JetBrains Mono,monospace;font-size:11px;color:#5a5570;">ET {ny.strftime("%H:%M")} | LDN {lon.strftime("%H:%M")} | UTC {utc.strftime("%H:%M")}</div>
     <div style="margin-top:6px;">{session_badges}</div>
     <div style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:12px;color:#5a5570;margin-top:4px;">{SESSION_TIPS.get(sessions_now[0][0],"")}</div>
   </div>
@@ -1591,30 +1586,25 @@ def make_ticker():
         d=sig.get("signal","HOLD"); arrow="UP" if chg>=0 else "DN"
         cc="tick-up" if chg>=0 else "tick-dn"
         bc="badge-long" if ("BUY" in d or d=="OVERSOLD") else "badge-short" if ("SELL" in d or d=="OVERBOUGHT") else "badge-hold"
-        reg=sig.get("regime",{}).get("regime","")
-        rc="badge-regime-trend" if reg=="TRENDING" else "badge-regime-range" if reg=="RANGING" else "badge-regime-vol"
-        tqs=tqs_per_market.get(mk,0)
-        tc="#1aff8a" if tqs>=70 else "#c9a84c" if tqs>=45 else "#5a5570"
-        proxy=MARKETS[mk]["apex_proxy"]
-        items.append(f'<span class="tick-item"><span class="tick-sym">{mk}</span><span class="tick-px">{fmt_price(mk,p)}</span><span class="{cc}">{arrow} {abs(chg):.2f}%</span><span class="badge {bc}" style="font-size:9px;padding:1px 6px;">{d}</span><span class="badge {rc}">{reg[:3]}</span><span style="font-family:JetBrains Mono,monospace;font-size:9px;color:{tc};">TQS {tqs}</span><span class="proxy-tag">{proxy}</span><span class="tick-sep">--</span></span>')
+        reg=sig.get("regime",{}).get("regime",""); rc="badge-regime-trend" if reg=="TRENDING" else "badge-regime-range" if reg=="RANGING" else "badge-regime-vol"
+        tqs=tqs_per_market.get(mk,0); tc="#1aff8a" if tqs>=70 else "#c9a84c" if tqs>=45 else "#5a5570"
+        items.append(f'<span class="tick-item"><span class="tick-sym">{mk}</span><span class="tick-px">{fmt_price(mk,p)}</span><span class="{cc}">{arrow} {abs(chg):.2f}%</span><span class="badge {bc}" style="font-size:9px;padding:1px 6px;">{d}</span><span class="badge {rc}">{reg[:3]}</span><span style="font-family:JetBrains Mono,monospace;font-size:9px;color:{tc};">TQS {tqs}</span><span class="tick-sep">|</span></span>')
     inner="".join(items)*3
     return f'<div class="ticker-wrap"><div class="ticker-track">{inner}</div></div>'
 
-st.markdown(make_ticker(), unsafe_allow_html=True)
+st.markdown(make_ticker(),unsafe_allow_html=True)
 
 # HEADER STATS
-health=diag["overall"]
-hc="#1aff8a" if health>=70 else "#c9a84c" if health>=45 else "#ff2d55"
-apex_eq=apex_status["apex_equity"]
-aeq_c="#1aff8a" if apex_status["cumulative_pnl"]>=0 else "#ff2d55"
+health=diag["overall"]; hc="#1aff8a" if health>=70 else "#c9a84c" if health>=45 else "#ff2d55"
+apex_eq=apex_status["apex_equity"]; aeq_c="#1aff8a" if apex_status["cumulative_pnl"]>=0 else "#ff2d55"
 td_color="#ff2d55" if apex_status["trailing_dd_pct"]>70 else "#c9a84c" if apex_status["trailing_dd_pct"]>40 else "#1aff8a"
 hcols=st.columns([3,1,1,1,1,1])
-with hcols[1]: st.markdown(f'<div style="text-align:center;padding:8px 0;"><div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.12em;color:#5a5570;">HEALTH</div><div style="font-family:Cinzel,serif;font-size:2rem;font-weight:900;color:{hc};">{health}</div></div>', unsafe_allow_html=True)
-with hcols[2]: st.markdown(f'<div style="text-align:center;padding:8px 0;"><div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.12em;color:#5a5570;">FEAR/GREED</div><div style="font-family:Cinzel,serif;font-size:2rem;font-weight:900;color:{fg_color};">{fg_val}</div><div style="font-size:10px;color:#5a5570;font-style:italic;">{fg_label}</div></div>', unsafe_allow_html=True)
-with hcols[3]: st.markdown(f'<div style="text-align:center;padding:8px 0;"><div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.12em;color:#5a5570;">APEX EQUITY</div><div style="font-family:Cinzel,serif;font-size:2rem;font-weight:900;color:{aeq_c};">${apex_eq:,.0f}</div><div style="font-size:10px;color:#5a5570;">today {apex_status["daily_pnl"]:+,.0f}</div></div>', unsafe_allow_html=True)
-with hcols[4]: st.markdown(f'<div style="text-align:center;padding:8px 0;"><div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.12em;color:#5a5570;">TRAIL DD</div><div style="font-family:Cinzel,serif;font-size:2rem;font-weight:900;color:{td_color};">${apex_status["trailing_dd"]:,.0f}</div><div style="font-size:10px;color:#5a5570;">/ $2,500</div></div>', unsafe_allow_html=True)
-with hcols[5]: st.markdown(f'<div style="text-align:center;padding:8px 0;"><div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.12em;color:#5a5570;">TO TARGET</div><div style="font-family:Cinzel,serif;font-size:2rem;font-weight:900;color:#c9a84c;">${max(0,3000-apex_status["cumulative_pnl"]):,.0f}</div><div style="font-size:10px;color:#5a5570;">{apex_status["pct_to_target"]:.0f}% done</div></div>', unsafe_allow_html=True)
-st.markdown(f'<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.12em;color:#5a5570;margin-bottom:10px;"><span class="live-dot"></span>LIVE - APEX $50K - SOL/SOXL/AVAX/LINK/TQQQ/XBI - {"CLAUDE ON" if CLKEY else "FALLBACK"}</div>', unsafe_allow_html=True)
+with hcols[1]: st.markdown(f'<div style="text-align:center;padding:8px 0;"><div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.1em;color:#5a5570;">HEALTH</div><div style="font-family:Cinzel,serif;font-size:2rem;font-weight:900;color:{hc};">{health}</div></div>', unsafe_allow_html=True)
+with hcols[2]: st.markdown(f'<div style="text-align:center;padding:8px 0;"><div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.1em;color:#5a5570;">FEAR/GREED</div><div style="font-family:Cinzel,serif;font-size:2rem;font-weight:900;color:{fg_color};">{fg_val}</div><div style="font-size:10px;color:#5a5570;">{fg_label}</div></div>', unsafe_allow_html=True)
+with hcols[3]: st.markdown(f'<div style="text-align:center;padding:8px 0;"><div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.1em;color:#5a5570;">APEX EQUITY</div><div style="font-family:Cinzel,serif;font-size:2rem;font-weight:900;color:{aeq_c};">${apex_eq:,.0f}</div><div style="font-size:10px;color:#5a5570;">today {apex_status["daily_pnl"]:+,.0f}</div></div>', unsafe_allow_html=True)
+with hcols[4]: st.markdown(f'<div style="text-align:center;padding:8px 0;"><div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.1em;color:#5a5570;">TRAIL DD</div><div style="font-family:Cinzel,serif;font-size:2rem;font-weight:900;color:{td_color};">${apex_status["trailing_dd"]:,.0f}</div><div style="font-size:10px;color:#5a5570;">/ $2,500</div></div>', unsafe_allow_html=True)
+with hcols[5]: st.markdown(f'<div style="text-align:center;padding:8px 0;"><div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.1em;color:#5a5570;">TO TARGET</div><div style="font-family:Cinzel,serif;font-size:2rem;font-weight:900;color:#c9a84c;">${max(0,3000-apex_status["cumulative_pnl"]):,.0f}</div><div style="font-size:10px;color:#5a5570;">{apex_status["pct_to_target"]:.0f}% done</div></div>', unsafe_allow_html=True)
+st.markdown(f'<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.1em;color:#5a5570;margin-bottom:10px;"><span class="live-dot"></span>LIVE - APEX $50K NINJATRADER - {"CLAUDE ON" if CLKEY else "FALLBACK"}</div>', unsafe_allow_html=True)
 
 # SIGNAL CARDS
 sig_cols=st.columns(len(SEL))
@@ -1633,11 +1623,9 @@ for col,mk in zip(sig_cols,SEL):
         if div.get("bear_div"): div_html+=f'<div class="divergence-bear">{div.get("desc","")}</div>'
         if div.get("macd_bull"): div_html+=f'<div class="macd-bull">{div.get("macd_desc","")}</div>'
         if div.get("macd_bear"): div_html+=f'<div class="macd-bear">{div.get("macd_desc","")}</div>'
-        pats=sig.get("patterns",[]); pats_html="".join(f'<span class="pattern-tag">{p2}</span>' for p2 in pats[:3])
-        tqs=tqs_per_market.get(mk,0)
-        tqs_c="#1aff8a" if tqs>=70 else "#c9a84c" if tqs>=45 else "#ff2d55"
-        cv=council_per_market[mk]
-        vc="#1aff8a" if cv["verdict"]=="LONG" else "#ff2d55" if cv["verdict"]=="SHORT" else "#5a5570"
+        pats=sig.get("patterns",[]); pats_html="".join(f'<span class="pattern-tag">{p2}</span>' for p2 in pats[:2])
+        tqs=tqs_per_market.get(mk,0); tqs_c="#1aff8a" if tqs>=70 else "#c9a84c" if tqs>=45 else "#ff2d55"
+        cv=council_per_market[mk]; vc="#1aff8a" if cv["verdict"]=="LONG" else "#ff2d55" if cv["verdict"]=="SHORT" else "#5a5570"
         mc_color="#1aff8a" if is_b else "#ff2d55" if is_s else "#c9a84c"
         sfmt=f'${sig["stop"]:,.2f}' if sig.get("stop") else "--"
         tfmt=f'${sig["target"]:,.2f}' if sig.get("target") else "--"
@@ -1645,25 +1633,25 @@ for col,mk in zip(sig_cols,SEL):
         <div class="signal-card {card_cls}">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
             <div>
-              <div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.1em;color:#5a5570;">{m['sub']}</div>
+              <div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.08em;color:#5a5570;">{m['sub']}</div>
               <div class="sc-sym">{mk}</div>
               <div style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:11px;color:#5a5570;">{m['label']}</div>
+              <div style="font-family:JetBrains Mono,monospace;font-size:8px;color:#3a3550;margin-top:2px;">{m['contract_size']}</div>
             </div>
             <div style="text-align:right;">
               <span class="badge {rc}" style="display:block;margin-bottom:3px;">{rn}</span>
               <span class="badge {badge_cls}">{s}</span>
-              <div style="margin-top:3px;"><span class="proxy-tag">{m['apex_proxy']}</span></div>
             </div>
           </div>
           <div class="sc-price">{fmt_price(mk,p)}</div>
-          <div class="{chg_cls}" style="margin:2px 0 8px;">{"UP" if chg>=0 else "DN"} {abs(chg):.2f}% today</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:6px 0;padding:8px;background:#0d0c16;border-radius:1px;">
-            <div style="text-align:center;"><div style="font-family:Cinzel,serif;font-size:1.4rem;font-weight:900;color:{tqs_c};">{tqs}</div><div style="font-family:Cinzel,serif;font-size:7px;letter-spacing:.08em;color:#5a5570;">TQS</div></div>
-            <div style="text-align:center;"><div style="font-family:Cinzel,serif;font-size:.9rem;font-weight:900;color:{vc};">{cv["verdict"]}</div><div style="font-family:Cinzel,serif;font-size:7px;letter-spacing:.08em;color:#5a5570;">COUNCIL</div></div>
+          <div class="{chg_cls}" style="margin:2px 0 8px;">{"UP" if chg>=0 else "DN"} {abs(chg):.2f}%</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;margin:6px 0;padding:7px;background:#0d0c16;border-radius:1px;">
+            <div style="text-align:center;"><div style="font-family:Cinzel,serif;font-size:1.3rem;font-weight:900;color:{tqs_c};">{tqs}</div><div style="font-family:Cinzel,serif;font-size:7px;color:#5a5570;">TQS</div></div>
+            <div style="text-align:center;"><div style="font-family:Cinzel,serif;font-size:.85rem;font-weight:900;color:{vc};">{cv["verdict"]}</div><div style="font-family:Cinzel,serif;font-size:7px;color:#5a5570;">COUNCIL</div></div>
           </div>
           <div class="meter-track"><div class="meter-fill" style="width:{conf}%;background:{mc_color};"></div></div>
           <div style="font-family:JetBrains Mono,monospace;font-size:10px;color:#5a5570;margin-top:2px;">CONF {conf}%</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:8px;font-family:JetBrains Mono,monospace;font-size:10px;">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:7px;font-family:JetBrains Mono,monospace;font-size:10px;">
             <div style="color:#5a5570;">RSI <span style="color:#d4cfc0;">{sig["rsi"]}</span></div>
             <div style="color:#5a5570;">BB% <span style="color:#d4cfc0;">{sig["bb_pct"]}</span></div>
             <div style="color:#ff2d55;">SL {sfmt}</div>
@@ -1681,26 +1669,25 @@ if st.session_state["whisper_feed"]:
 # ==============================================================
 # TABS
 # ==============================================================
-t0,t1,t2,t3,t4,t5,t6,t7,t8,t9=st.tabs([
+t0,t1,t2,t3,t4,t5,t6,t7,t8=st.tabs([
     "APEX DESK","PULSE","INTELLIGENCE","TRADERS",
-    "SIGNAL FEED","LIVE CHARTS","RULES ENGINE",
-    "BACKTEST","AI ANALYST","EDGE TOOLS",
+    "SIGNAL FEED","LIVE CHARTS","RULES ENGINE","BACKTEST","AI ANALYST",
 ])
 
 # ==============================================================
 # TAB 0 - APEX DESK
 # ==============================================================
 with t0:
-    st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.18em;color:#ff9500;margin-bottom:8px;">APEX TRADER FUNDING - $50K ACCOUNT COMPLIANCE</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.15em;color:#ff9500;margin-bottom:8px;">APEX TRADER FUNDING - $50K NINJATRADER ACCOUNT</div>', unsafe_allow_html=True)
     if apex_status["locked"]: status_color="#ff2d55"; status_text="LOCKED"; status_sub=apex_status["lock_reason"]
-    elif apex_status["target_reached"]: status_color="#1aff8a"; status_text="TARGET HIT"; status_sub="$3,000 profit achieved"
+    elif apex_status["target_reached"]: status_color="#1aff8a"; status_text="TARGET HIT"; status_sub="$3,000 profit achieved - evaluation passed"
     elif apex_status["warnings"]: status_color="#ff9500"; status_text="WARNING"; status_sub=apex_status["warnings"][0]
     else: status_color="#1aff8a"; status_text="CLEAR"; status_sub="All limits healthy - trade with discipline"
     a0c1,a0c2=st.columns([2,3])
     with a0c1:
         st.markdown(f"""
         <div class="panel" style="border-top:3px solid {status_color};text-align:center;padding:28px 18px;">
-          <div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.18em;color:#5a5570;margin-bottom:10px;">ACCOUNT STATUS</div>
+          <div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.15em;color:#5a5570;margin-bottom:10px;">ACCOUNT STATUS</div>
           <div style="font-family:Cinzel,serif;font-size:2.8rem;font-weight:900;color:{status_color};line-height:1;">{status_text}</div>
           <div style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:13px;color:#5a5570;margin-top:8px;">{status_sub}</div>
           <hr>
@@ -1713,13 +1700,10 @@ with t0:
           </div>
         </div>""", unsafe_allow_html=True)
     with a0c2:
-        st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.14em;color:#ff9500;margin-bottom:10px;">LIMIT GAUGES</div>', unsafe_allow_html=True)
-        dl_pct=apex_status["daily_loss_pct"]
-        dl_color="#ff2d55" if dl_pct>=100 else "#ff9500" if dl_pct>=70 else "#1aff8a"
-        dl_used=abs(min(0,apex_status["daily_pnl"]))
-        dl_left=APEX_CONFIG["daily_loss_limit"]-dl_used
-        st.markdown(f"""
-        <div class="panel" style="margin-bottom:10px;border-left:2px solid {dl_color};">
+        st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.12em;color:#ff9500;margin-bottom:10px;">LIMIT GAUGES</div>', unsafe_allow_html=True)
+        dl_pct=apex_status["daily_loss_pct"]; dl_color="#ff2d55" if dl_pct>=100 else "#ff9500" if dl_pct>=70 else "#1aff8a"
+        dl_used=abs(min(0,apex_status["daily_pnl"])); dl_left=APEX_CONFIG["daily_loss_limit"]-dl_used
+        st.markdown(f"""<div class="panel" style="margin-bottom:10px;border-left:2px solid {dl_color};">
           <div style="display:flex;justify-content:space-between;margin-bottom:5px;">
             <span style="font-family:Cinzel,serif;font-size:10px;color:#fff;">DAILY LOSS LIMIT</span>
             <span style="font-family:JetBrains Mono,monospace;font-size:11px;color:{dl_color};">${dl_used:,.0f} / $1,000</span>
@@ -1727,11 +1711,9 @@ with t0:
           <div class="apex-progress-track"><div class="apex-progress-fill" style="width:{dl_pct:.1f}%;background:{dl_color};"></div></div>
           <div style="font-family:JetBrains Mono,monospace;font-size:10px;color:#5a5570;margin-top:3px;">${dl_left:,.0f} remaining - {"LOCKED" if dl_pct>=100 else "CAUTION" if dl_pct>=70 else "CLEAR"}</div>
         </div>""", unsafe_allow_html=True)
-        td_pct=apex_status["trailing_dd_pct"]
-        td_color="#ff2d55" if td_pct>=100 else "#ff9500" if td_pct>=70 else "#1aff8a"
+        td_pct=apex_status["trailing_dd_pct"]; td_color="#ff2d55" if td_pct>=100 else "#ff9500" if td_pct>=70 else "#1aff8a"
         td_left=APEX_CONFIG["trailing_drawdown"]-apex_status["trailing_dd"]
-        st.markdown(f"""
-        <div class="panel" style="margin-bottom:10px;border-left:2px solid {td_color};">
+        st.markdown(f"""<div class="panel" style="margin-bottom:10px;border-left:2px solid {td_color};">
           <div style="display:flex;justify-content:space-between;margin-bottom:5px;">
             <span style="font-family:Cinzel,serif;font-size:10px;color:#fff;">TRAILING DRAWDOWN</span>
             <span style="font-family:JetBrains Mono,monospace;font-size:11px;color:{td_color};">${apex_status["trailing_dd"]:,.0f} / $2,500</span>
@@ -1739,11 +1721,9 @@ with t0:
           <div class="apex-progress-track"><div class="apex-progress-fill" style="width:{td_pct:.1f}%;background:{td_color};"></div></div>
           <div style="font-family:JetBrains Mono,monospace;font-size:10px;color:#5a5570;margin-top:3px;">${max(0,td_left):,.0f} buffer from peak ${apex_status["high_water"]:,.0f}</div>
         </div>""", unsafe_allow_html=True)
-        pt_pct=apex_status["pct_to_target"]
-        pt_color="#1aff8a" if pt_pct>=100 else "#c9a84c" if pt_pct>=50 else "#5a5570"
+        pt_pct=apex_status["pct_to_target"]; pt_color="#1aff8a" if pt_pct>=100 else "#c9a84c" if pt_pct>=50 else "#5a5570"
         pt_left=max(0,APEX_CONFIG["profit_target"]-apex_status["cumulative_pnl"])
-        st.markdown(f"""
-        <div class="panel" style="margin-bottom:10px;border-left:2px solid {pt_color};">
+        st.markdown(f"""<div class="panel" style="margin-bottom:10px;border-left:2px solid {pt_color};">
           <div style="display:flex;justify-content:space-between;margin-bottom:5px;">
             <span style="font-family:Cinzel,serif;font-size:10px;color:#fff;">PROFIT TARGET</span>
             <span style="font-family:JetBrains Mono,monospace;font-size:11px;color:{pt_color};">${apex_status["cumulative_pnl"]:,.0f} / $3,000</span>
@@ -1753,33 +1733,71 @@ with t0:
         </div>""", unsafe_allow_html=True)
         td_days=apex_status["trading_days"]; td_need=APEX_CONFIG["min_trading_days"]
         td_pct2=min(100,td_days/td_need*100); td_col2="#1aff8a" if td_days>=td_need else "#c9a84c"
-        st.markdown(f"""
-        <div class="panel" style="border-left:2px solid {td_col2};">
+        st.markdown(f"""<div class="panel" style="border-left:2px solid {td_col2};">
           <div style="display:flex;justify-content:space-between;margin-bottom:5px;">
             <span style="font-family:Cinzel,serif;font-size:10px;color:#fff;">TRADING DAYS</span>
             <span style="font-family:JetBrains Mono,monospace;font-size:11px;color:{td_col2};">{td_days} / {td_need}</span>
           </div>
           <div class="apex-progress-track"><div class="apex-progress-fill" style="width:{td_pct2:.1f}%;background:{td_col2};"></div></div>
-          <div style="font-family:JetBrains Mono,monospace;font-size:10px;color:#5a5570;margin-top:3px;">{"Minimum days met" if td_days>=td_need else f"{td_need-td_days} more unique days needed"}</div>
+          <div style="font-family:JetBrains Mono,monospace;font-size:10px;color:#5a5570;margin-top:3px;">{"Minimum met" if td_days>=td_need else f"{td_need-td_days} more unique days needed"}</div>
         </div>""", unsafe_allow_html=True)
 
-    st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.14em;color:#ff9500;margin:22px 0 10px;">FUTURES PROXY TABLE</div>', unsafe_allow_html=True)
-    proxy_rows=[]
+    st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.12em;color:#ff9500;margin:22px 0 10px;">CONTRACT REFERENCE - HOW MUCH EACH CONTRACT MOVES</div>', unsafe_allow_html=True)
+    contract_rows=[]
     for mk in SEL:
         sig=market_signals[mk]; m=MARKETS[mk]; cv=council_per_market[mk]; tqs=tqs_per_market[mk]
-        proxy_rows.append({"Signal":mk,"Direction":sig.get("signal","HOLD"),"TQS":tqs,
-            "Council":cv["verdict"],"Apex Contract":m["apex_proxy"],"Contract Info":m["apex_note"],
-            "Price":fmt_price(mk,sig.get("price",0)),"Max Risk 1%":f"${APEX_CONFIG['account_size']*0.01:,.0f}"})
-    st.dataframe(pd.DataFrame(proxy_rows),use_container_width=True,hide_index=True)
+        contract_rows.append({
+            "Contract":mk,"Name":m["label"],"Signal":sig.get("signal","HOLD"),
+            "TQS":tqs,"Council":cv["verdict"],"Price":fmt_price(mk,sig.get("price",0)),
+            "Size":m["contract_size"],"Tick":m["tick_size"],
+            "For $1K/day":m["apex_note"].split("-")[0].strip(),
+        })
+    st.dataframe(pd.DataFrame(contract_rows),use_container_width=True,hide_index=True)
+
+    st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.12em;color:#ff9500;margin:18px 0 10px;">$1,000 DAY TARGET CALCULATOR</div>', unsafe_allow_html=True)
+    calc_cols=st.columns(3)
+    with calc_cols[0]:
+        st.markdown("""<div class="target-box">
+          <div style="font-family:Cinzel,serif;font-size:9px;color:#1aff8a;letter-spacing:.1em;margin-bottom:6px;">NQ - E-MINI NASDAQ</div>
+          <div style="font-family:JetBrains Mono,monospace;font-size:10px;line-height:1.8;color:#d4cfc0;">
+            1 contract = $20/point<br>
+            50 point move = $1,000<br>
+            Daily range: 150-400 pts<br>
+            Typical stop: 20pts = $400<br>
+            Best time: 9:30-11am ET
+          </div>
+        </div>""", unsafe_allow_html=True)
+    with calc_cols[1]:
+        st.markdown("""<div class="target-box">
+          <div style="font-family:Cinzel,serif;font-size:9px;color:#FF6644;letter-spacing:.1em;margin-bottom:6px;">CL - CRUDE OIL</div>
+          <div style="font-family:JetBrains Mono,monospace;font-size:10px;line-height:1.8;color:#d4cfc0;">
+            1 contract = $1,000 per $1<br>
+            $1.00 move = $1,000<br>
+            Daily range: $1-3 typical<br>
+            Typical stop: $0.40 = $400<br>
+            Best: Wed 10:30am inventory
+          </div>
+        </div>""", unsafe_allow_html=True)
+    with calc_cols[2]:
+        st.markdown("""<div class="target-box">
+          <div style="font-family:Cinzel,serif;font-size:9px;color:#c9a84c;letter-spacing:.1em;margin-bottom:6px;">GC - GOLD</div>
+          <div style="font-family:JetBrains Mono,monospace;font-size:10px;line-height:1.8;color:#d4cfc0;">
+            1 contract = $100 per $1<br>
+            $10 move = $1,000<br>
+            Daily range: $15-40 typical<br>
+            Typical stop: $5 = $500<br>
+            Best: London open + NY open
+          </div>
+        </div>""", unsafe_allow_html=True)
 
     daily_hist=st.session_state.get("apex_daily_history",[])
     if len(daily_hist)>=2:
-        st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.14em;color:#ff9500;margin:20px 0 10px;">DAILY P&L HISTORY</div>', unsafe_allow_html=True)
-        dh_df=pd.DataFrame(daily_hist)
-        bar_c=["#1aff8a" if p>=0 else "#ff2d55" for p in dh_df["pnl"]]
+        st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.12em;color:#ff9500;margin:20px 0 10px;">DAILY P&L HISTORY</div>', unsafe_allow_html=True)
+        dh_df=pd.DataFrame(daily_hist); bar_c=["#1aff8a" if p>=0 else "#ff2d55" for p in dh_df["pnl"]]
         fig_dh=go.Figure(go.Bar(x=dh_df["date"],y=dh_df["pnl"],marker=dict(color=bar_c,opacity=0.8),
             text=[f"${p:+,.0f}" for p in dh_df["pnl"]],textposition="outside",
             textfont=dict(family="JetBrains Mono",size=10,color="#d4cfc0")))
+        fig_dh.add_hline(y=1000,line=dict(color="#1aff8a",width=1,dash="dash"),annotation_text="$1K Target")
         fig_dh.add_hline(y=-APEX_CONFIG["daily_loss_limit"],line=dict(color="#ff2d55",width=1,dash="dash"),annotation_text="Daily Limit")
         fig_dh.update_layout(height=240,template="plotly_dark",paper_bgcolor="#05040a",plot_bgcolor="#09080f",
             margin=dict(l=0,r=0,t=10,b=0),showlegend=False,
@@ -1791,32 +1809,30 @@ with t0:
 # TAB 1 - PULSE
 # ==============================================================
 with t1:
-    st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.18em;color:#c9a84c;margin-bottom:8px;">PULSE - LIVE OPPORTUNITY GRID</div>', unsafe_allow_html=True)
-    tqs_cols=st.columns(len(SEL))
-    sorted_mk=sorted(SEL,key=lambda x:tqs_per_market[x],reverse=True)
+    st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.15em;color:#c9a84c;margin-bottom:8px;">PULSE - LIVE OPPORTUNITY GRID</div>', unsafe_allow_html=True)
+    tqs_cols=st.columns(len(SEL)); sorted_mk=sorted(SEL,key=lambda x:tqs_per_market[x],reverse=True)
     for i,(col,mk) in enumerate(zip(tqs_cols,sorted_mk)):
         tqs=tqs_per_market[mk]; sig=market_signals[mk]; cv=council_per_market[mk]
         tc="#1aff8a" if tqs>=70 else "#c9a84c" if tqs>=45 else "#ff2d55" if tqs<30 else "#5a5570"
         vc="#1aff8a" if cv["verdict"]=="LONG" else "#ff2d55" if cv["verdict"]=="SHORT" else "#5a5570"
-        rank="1" if i==0 else "2" if i==1 else "3" if i==2 else str(i+1)
         with col:
             st.markdown(f"""
             <div class="tqs-cell" style="border-top:2px solid {tc};">
-              <div style="font-family:JetBrains Mono,monospace;font-size:9px;color:#3a3550;margin-bottom:2px;">RANK {rank}</div>
-              <div style="font-family:Cinzel,serif;font-size:1rem;font-weight:700;color:#fff;margin-bottom:4px;">{mk}</div>
+              <div style="font-family:JetBrains Mono,monospace;font-size:9px;color:#3a3550;margin-bottom:2px;">RANK {i+1}</div>
+              <div style="font-family:Cinzel,serif;font-size:1rem;font-weight:700;color:#fff;margin-bottom:2px;">{mk}</div>
+              <div style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:11px;color:#5a5570;margin-bottom:4px;">{MARKETS[mk]['label']}</div>
               <div class="tqs-score" style="color:{tc};">{tqs}</div>
               <div class="tqs-label">TRADE QUALITY</div>
               <div class="meter-track" style="margin-top:8px;height:4px;"><div class="meter-fill" style="width:{tqs}%;background:{tc};"></div></div>
               <div style="margin-top:6px;font-family:JetBrains Mono,monospace;font-size:10px;color:#5a5570;">
                 <div>{sig.get("signal","HOLD")} - {sig.get("conf",0)}%</div>
                 <div style="color:{vc};margin-top:2px;font-weight:700;">{cv["verdict"]}</div>
-                <div style="margin-top:3px;"><span class="proxy-tag">{MARKETS[mk]["apex_proxy"]}</span></div>
               </div>
             </div>""", unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
     p1l,p1r=st.columns([3,2])
     with p1l:
-        st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.14em;color:#c9a84c;margin-bottom:10px;">COUNCIL VOTING</div>', unsafe_allow_html=True)
+        st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.12em;color:#c9a84c;margin-bottom:10px;">COUNCIL VOTING</div>', unsafe_allow_html=True)
         for mk in SEL:
             cv=council_per_market[mk]; total=cv["long"]+cv["short"]+cv["hold"]
             lp=cv["long"]/total*100; sp=cv["short"]/total*100; hp=cv["hold"]/total*100
@@ -1825,8 +1841,7 @@ with t1:
             <div style="margin-bottom:12px;">
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
                 <div><span style="font-family:Cinzel,serif;font-weight:700;color:#fff;">{mk}</span>
-                <span style="font-family:Cormorant Garamond,serif;font-style:italic;color:#5a5570;margin-left:6px;">{MARKETS[mk]['label']}</span>
-                <span class="proxy-tag" style="margin-left:6px;">{MARKETS[mk]["apex_proxy"]}</span></div>
+                <span style="font-family:Cormorant Garamond,serif;font-style:italic;color:#5a5570;margin-left:6px;">{MARKETS[mk]['label']}</span></div>
                 <div style="font-family:Cinzel,serif;font-size:11px;font-weight:700;color:{vc};">{cv["verdict"]} - {cv["strength"]:.0f}%</div>
               </div>
               <div class="council-bar">
@@ -1835,32 +1850,30 @@ with t1:
                 <div class="council-hold" style="width:{hp}%;"></div>
               </div>
               <div style="display:grid;grid-template-columns:1fr 1fr 1fr;font-family:JetBrains Mono,monospace;font-size:9px;margin-top:3px;">
-                <div style="color:#1aff8a;">L {cv["long"]}</div>
-                <div style="color:#ff2d55;">S {cv["short"]}</div>
-                <div style="color:#5a5570;">H {cv["hold"]}</div>
+                <div style="color:#1aff8a;">L {cv["long"]}</div><div style="color:#ff2d55;">S {cv["short"]}</div><div style="color:#5a5570;">H {cv["hold"]}</div>
               </div>
             </div>""", unsafe_allow_html=True)
     with p1r:
-        st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.14em;color:#c9a84c;margin-bottom:10px;">TOP SETUP</div>', unsafe_allow_html=True)
-        best_mk=sorted_mk[0]; btqs=tqs_per_market[best_mk]; bsig=market_signals[best_mk]; bcv=council_per_market[best_mk]
+        st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.12em;color:#c9a84c;margin-bottom:10px;">TOP SETUP</div>', unsafe_allow_html=True)
+        best_mk=sorted_mk[0]; btqs=tqs_per_market[best_mk]; bsig=market_signals[best_mk]
+        bcv=council_per_market[best_mk]; bm=MARKETS[best_mk]
         bvc="#1aff8a" if bcv["verdict"]=="LONG" else "#ff2d55" if bcv["verdict"]=="SHORT" else "#5a5570"
-        bm=MARKETS[best_mk]
         reasons_html="".join(f'<div style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:12px;color:#5a5570;">- {r}</div>' for r in bsig.get("reasons",[])[:4])
         st.markdown(f"""
         <div class="panel" style="border-top:2px solid {bvc};">
-          <div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.14em;color:#5a5570;margin-bottom:6px;">HIGHEST TQS</div>
+          <div style="font-family:Cinzel,serif;font-size:9px;color:#5a5570;margin-bottom:6px;">HIGHEST TQS</div>
           <div style="font-family:Cinzel,serif;font-size:2rem;font-weight:900;color:#fff;">{best_mk}</div>
           <div style="font-family:Cormorant Garamond,serif;font-style:italic;color:#5a5570;">{bm['label']}</div>
-          <div style="margin:5px 0;"><span class="proxy-tag">{bm['apex_proxy']}</span> <span style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:11px;color:#5a5570;">{bm['apex_note']}</span></div>
+          <div style="font-family:JetBrains Mono,monospace;font-size:9px;color:#ff9500;margin-bottom:8px;">{bm['apex_note']}</div>
           <div style="font-family:JetBrains Mono,monospace;font-size:11px;line-height:1.8;margin-top:8px;">
             <div style="color:#5a5570;">Signal: <span style="color:#fff;">{bsig.get("signal","HOLD")} ({bsig.get("conf",0)}%)</span></div>
             <div style="color:#5a5570;">Price: <span style="color:#fff;">{fmt_price(best_mk,live_prices[best_mk])}</span></div>
-            <div style="color:#ff2d55;">SL: ${bsig.get("stop",0):,.2f}</div>
-            <div style="color:#1aff8a;">TP: ${bsig.get("target",0):,.2f}</div>
+            <div style="color:#ff2d55;">SL: {f"${bsig.get('stop',0):,.2f}"}</div>
+            <div style="color:#1aff8a;">TP: {f"${bsig.get('target',0):,.2f}"}</div>
           </div>
           <div style="margin-top:10px;border-top:1px solid #12101e;padding-top:10px;">{reasons_html}</div>
         </div>""", unsafe_allow_html=True)
-    st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.14em;color:#c9a84c;margin:22px 0 10px;">LIVE EQUITY RACE</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.12em;color:#c9a84c;margin:22px 0 10px;">EQUITY RACE</div>', unsafe_allow_html=True)
     race=sorted([(tr["name"],tr["balance"],tr["balance"]-STARTING_BALANCE) for tr in TRADERS],key=lambda x:x[1],reverse=True)
     fig_race=go.Figure(go.Bar(x=[p for _,_,p in race],y=[n for n,_,_ in race],orientation="h",
         marker=dict(color=["#1aff8a" if p>0 else "#ff2d55" for _,_,p in race],opacity=0.8),
@@ -1878,34 +1891,33 @@ with t1:
 with t2:
     ni1,ni2=st.columns([3,2])
     with ni1:
-        st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.18em;color:#c9a84c;margin-bottom:16px;">INTELLIGENCE BRIEF</div>', unsafe_allow_html=True)
+        st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.15em;color:#c9a84c;margin-bottom:16px;">INTELLIGENCE BRIEF</div>', unsafe_allow_html=True)
         notes=st.session_state["notes"]
         if not notes:
-            st.markdown('<div class="nigel-note note-info"><div class="note-head">AWAITING ANALYSIS</div><div class="note-body">Nigel is observing the markets. Notes appear on next data cycle.</div></div>', unsafe_allow_html=True)
-        icons = {"watch":"WATCH","buy":"LONG BIAS","sell":"SHORT BIAS","info":"OBSERVE"}
-        colors = {"watch":"#c9a84c","buy":"#1aff8a","sell":"#ff2d55","info":"#00c4ff"}
+            st.markdown('<div class="nigel-note note-info"><div class="note-head">AWAITING ANALYSIS</div><div class="note-body">Nigel is observing the futures markets. Notes appear on next data cycle.</div></div>', unsafe_allow_html=True)
+        icons={"watch":"WATCH","buy":"LONG BIAS","sell":"SHORT BIAS","info":"OBSERVE"}
+        colors={"watch":"#c9a84c","buy":"#1aff8a","sell":"#ff2d55","info":"#00c4ff"}
         for n in notes[:8]:
             cls=f"note-{n['type']}"; ic=icons.get(n['type'],"OBSERVE"); cl=colors.get(n['type'],"#c9a84c")
             mk_name=MARKETS.get(n['market'],{}).get('label',n['market'])
-            st.markdown(f'<div class="nigel-note {cls}"><div class="note-head" style="color:{cl};">{ic} - {mk_name} <span style="color:#3a3550;font-weight:400;float:right;">{n["time"]}</span></div><div class="note-body">{n["text"]}</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="nigel-note {cls}"><div class="note-head" style="color:{cl};">{ic} - {n["market"]} {mk_name} <span style="color:#3a3550;float:right;">{n["time"]}</span></div><div class="note-body">{n["text"]}</div></div>', unsafe_allow_html=True)
     with ni2:
-        st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.18em;color:#c9a84c;margin-bottom:16px;">MARKET OVERVIEW</div>', unsafe_allow_html=True)
+        st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.15em;color:#c9a84c;margin-bottom:16px;">MARKET OVERVIEW</div>', unsafe_allow_html=True)
         rows=[]
         for mk in SEL:
             sig=market_signals[mk]; div=sig.get("divergence",{})
             divs="Bull" if (div.get("bull_div") or div.get("macd_bull")) else "Bear" if (div.get("bear_div") or div.get("macd_bear")) else "--"
-            rows.append({"Market":mk,"Signal":sig["signal"],"Conf":f"{sig['conf']}%",
-                "TQS":tqs_per_market.get(mk,0),"Council":council_per_market[mk]["verdict"],
-                "RSI":f"{sig['rsi']:.0f}","Mom":f"{sig['mom']:+.1f}%",
-                "Regime":sig['regime'].get('regime','?'),"Div":divs,
-                "Proxy":MARKETS[mk]["apex_proxy"]})
+            rows.append({"Contract":mk,"Name":MARKETS[mk]["label"],"Signal":sig["signal"],
+                "Conf":f"{sig['conf']}%","TQS":tqs_per_market.get(mk,0),
+                "Council":council_per_market[mk]["verdict"],"RSI":f"{sig['rsi']:.0f}",
+                "Mom":f"{sig['mom']:+.1f}%","Regime":sig['regime'].get('regime','?'),"Div":divs})
         st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True)
 
 # ==============================================================
 # TAB 3 - TRADERS
 # ==============================================================
 with t3:
-    st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.18em;color:#c9a84c;margin-bottom:16px;">THE SIX DESKS</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.15em;color:#c9a84c;margin-bottom:16px;">THE SIX DESKS</div>', unsafe_allow_html=True)
     if apex_status["locked"]:
         st.markdown(f'<div class="shield-banner">APEX LOCK - {apex_status["lock_reason"]}</div>', unsafe_allow_html=True)
     sb_rows=[]
@@ -1914,20 +1926,18 @@ with t3:
         wins=sum(1 for t in tr["trades"] if t.get("result")=="win"); tot=len(tr["trades"])
         wr=round(wins/tot*100) if tot else 0
         dd=round(max(0,(tr["peak"]-tr["balance"])/tr["peak"]*100),1) if tr["peak"] else 0
-        streak=(f"+{tr.get('win_streak',0)}" if tr.get('win_streak',0)>0
-                else f"-{tr.get('loss_streak',0)}" if tr.get('loss_streak',0)>0 else "--")
+        streak=(f"+{tr.get('win_streak',0)}" if tr.get('win_streak',0)>0 else f"-{tr.get('loss_streak',0)}" if tr.get('loss_streak',0)>0 else "--")
         sb_rows.append({"Desk":tr["name"],"Fitness":tr.get("fitness",0),"Balance":tr["balance"],
             "PnL":pnl,"Win%":wr,"Trades":tot,"DD%":dd,"Streak":streak,
             "Best":tr.get("best_market") or "--","Status":"PAUSED" if tr.get("paused") else "ACTIVE"})
-    sb_df=pd.DataFrame(sb_rows).sort_values("Fitness",ascending=False).reset_index(drop=True)
-    sb_df.index+=1
+    sb_df=pd.DataFrame(sb_rows).sort_values("Fitness",ascending=False).reset_index(drop=True); sb_df.index+=1
     st.dataframe(sb_df.style
         .format({"Balance":"${:,.0f}","PnL":"${:+,.0f}","Win%":"{}%","DD%":"{}%","Fitness":"{:.1f}"})
         .map(lambda v:"color:#1aff8a;font-weight:600" if isinstance(v,(int,float)) and v>0
-             else "color:#ff2d55;font-weight:600" if isinstance(v,(int,float)) and v<0 else "",
-             subset=["PnL"]),use_container_width=True)
+             else "color:#ff2d55;font-weight:600" if isinstance(v,(int,float)) and v<0 else "",subset=["PnL"]),
+        use_container_width=True)
     st.markdown("<br>", unsafe_allow_html=True)
-    tr_tabs=st.tabs([f"{tr['name']}" for tr in TRADERS])
+    tr_tabs=st.tabs([tr["name"] for tr in TRADERS])
     for tab,tr in zip(tr_tabs,TRADERS):
         with tab:
             pnl=tr["balance"]-STARTING_BALANCE
@@ -1949,8 +1959,7 @@ with t3:
                 <div><div class="stat-val">{tot}</div><div class="stat-lbl">Trades</div></div>
                 <div><div class="stat-val" style="color:#ff2d55;">{round(max(0,(tr["peak"]-tr["balance"])/tr["peak"]*100),1)}%</div><div class="stat-lbl">Drawdown</div></div>
                 <div><div class="stat-val" style="color:{fc};">{fit:.1f}</div><div class="stat-lbl">Fitness</div></div>
-              </div>
-              {paused_html}
+              </div>{paused_html}
             </div>""", unsafe_allow_html=True)
             pos=tr.get("open_pos")
             if pos and _is_valid_position(pos):
@@ -1958,8 +1967,8 @@ with t3:
                 is_long=pos.get("dir")=="long"; cls2="pos-long" if is_long else "pos-short"
                 unr=(cur-pos["entry"])*pos["units"] if is_long else (pos["entry"]-cur)*pos["units"]
                 uc="#1aff8a" if unr>=0 else "#ff2d55"
-                trail=" TRAILED" if pos.get("trailed") else ""
-                st.markdown(f'<div class="{cls2} pos-panel">{"LONG" if is_long else "SHORT"} - {MARKETS.get(mk,{}).get("label",mk)}{trail} - {pos.get("bars_in_trade",0)} bars<br>Entry ${pos["entry"]:,.2f} - Now ${cur:,.2f} - SL <span style="color:#ff2d55;">${pos["stop"]:,.2f}</span> - TP <span style="color:#1aff8a;">${pos["tp"]:,.2f}</span><br>Unrealized <span style="color:{uc};font-weight:700;">${unr:+,.2f}</span></div>', unsafe_allow_html=True)
+                ml=MARKETS.get(mk,{}).get("label",mk); trail=" TRAILED" if pos.get("trailed") else ""
+                st.markdown(f'<div class="{cls2} pos-panel">{"LONG" if is_long else "SHORT"} - {mk} {ml}{trail} - {pos.get("bars_in_trade",0)} bars<br>Entry {fmt_price(mk,pos["entry"])} - Now {fmt_price(mk,cur)} - SL <span style="color:#ff2d55;">{fmt_price(mk,pos["stop"])}</span> - TP <span style="color:#1aff8a;">{fmt_price(mk,pos["tp"])}</span><br>Unrealized <span style="color:{uc};font-weight:700;">${unr:+,.2f}</span></div>', unsafe_allow_html=True)
             else:
                 if pos: tr["open_pos"]=None; state_save()
                 st.markdown('<div class="pos-flat pos-panel">No open position - scanning for entry</div>', unsafe_allow_html=True)
@@ -1967,16 +1976,14 @@ with t3:
             if recent:
                 st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.1em;color:#5a5570;margin:10px 0 4px;">RECENT TRADES</div>', unsafe_allow_html=True)
                 for t in recent:
-                    is_w=t.get("result")=="win"; tc2="#1aff8a" if is_w else "#ff2d55"
-                    pc="trade-pip-w" if is_w else "trade-pip-l"
-                    proxy=MARKETS.get(t.get("market",""),{}).get("apex_proxy","--")
-                    st.markdown(f'<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #12101e;"><div><span class="{pc}">*</span><span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#d4cfc0;margin-left:8px;">{t.get("market","")} {"L" if t.get("dir")=="long" else "S"}</span><span style="font-family:JetBrains Mono,monospace;font-size:9px;color:#5a5570;margin-left:6px;">{t.get("reason","")} [{proxy}]</span></div><span style="font-family:JetBrains Mono,monospace;font-size:11px;color:{tc2};font-weight:600;">${t.get("pnl",0):+,.2f}</span></div>', unsafe_allow_html=True)
+                    is_w=t.get("result")=="win"; tc2="#1aff8a" if is_w else "#ff2d55"; pc="trade-pip-w" if is_w else "trade-pip-l"
+                    mk2=t.get("market",""); ml2=MARKETS.get(mk2,{}).get("label",mk2)
+                    st.markdown(f'<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #12101e;"><div><span class="{pc}">*</span><span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#d4cfc0;margin-left:8px;">{mk2} {ml2} {"L" if t.get("dir")=="long" else "S"}</span><span style="font-family:JetBrains Mono,monospace;font-size:9px;color:#5a5570;margin-left:6px;">{t.get("reason","")}</span></div><span style="font-family:JetBrains Mono,monospace;font-size:11px;color:{tc2};font-weight:600;">${t.get("pnl",0):+,.2f}</span></div>', unsafe_allow_html=True)
     colors_tr={"CONSERVATEUR":"#00c4ff","MOMENTUM":"#1aff8a","CONTRARIAN":"#ff2d55","SCALPER":"#c9a84c","MACRO":"#f7931a","ALGOBOT":"#a855f7"}
     fig_eq=go.Figure()
     for tr in TRADERS:
         if len(tr.get("history",[]))>1:
-            fig_eq.add_trace(go.Scatter(y=tr["history"],mode="lines",name=tr["name"],
-                line=dict(color=colors_tr.get(tr["name"],"#c9a84c"),width=2)))
+            fig_eq.add_trace(go.Scatter(y=tr["history"],mode="lines",name=tr["name"],line=dict(color=colors_tr.get(tr["name"],"#c9a84c"),width=2)))
     fig_eq.add_hline(y=STARTING_BALANCE,line=dict(color="#3a3550",width=1,dash="dot"))
     fig_eq.update_layout(height=280,template="plotly_dark",paper_bgcolor="#05040a",plot_bgcolor="#09080f",
         margin=dict(l=0,r=0,t=10,b=0),xaxis=dict(gridcolor="#12101e"),yaxis=dict(gridcolor="#12101e"),
@@ -1990,7 +1997,7 @@ with t3:
 with t4:
     sf1,sf2=st.columns([2,1])
     with sf1:
-        st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.18em;color:#c9a84c;margin-bottom:16px;">LIVE SIGNAL FEED</div>', unsafe_allow_html=True)
+        st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.15em;color:#c9a84c;margin-bottom:16px;">LIVE SIGNAL FEED</div>', unsafe_allow_html=True)
         feed=st.session_state["signal_feed"]
         if not feed:
             st.markdown('<div class="nigel-note note-info"><div class="note-body">Awaiting signals above 55% confidence...</div></div>', unsafe_allow_html=True)
@@ -2000,14 +2007,13 @@ with t4:
             sfmt2=f'${item["stop"]:,.2f}' if item.get("stop") else "--"
             tfmt2=f'${item["target"]:,.2f}' if item.get("target") else "--"
             tqs_v=item.get("tqs",0); tqs_c="#1aff8a" if tqs_v>=70 else "#c9a84c" if tqs_v>=45 else "#5a5570"
-            proxy=item.get("apex_proxy","--")
+            csize=item.get("contract_size","")
             div_parts=[]
             if item.get("div_bull"): div_parts.append('<span style="color:#1aff8a;font-size:9px;">RSI BULL</span>')
             if item.get("div_bear"): div_parts.append('<span style="color:#ff2d55;font-size:9px;">RSI BEAR</span>')
             if item.get("macd_bull"): div_parts.append('<span style="color:#1aff8a;font-size:9px;">MACD BULL</span>')
             if item.get("macd_bear"): div_parts.append('<span style="color:#ff2d55;font-size:9px;">MACD BEAR</span>')
             div_str=" ".join(div_parts)
-            reasons_str=" - ".join(item.get("reasons",[])[:2])
             st.markdown(f"""
             <div style="display:flex;gap:12px;align-items:flex-start;padding:9px 0;border-bottom:1px solid #12101e;">
               <div style="font-family:JetBrains Mono,monospace;font-size:9px;color:#3a3550;min-width:58px;padding-top:2px;">{item['time']}</div>
@@ -2016,16 +2022,16 @@ with t4:
                   <span style="font-family:Cinzel,serif;font-weight:700;color:#fff;">{item['mk']}</span>
                   <span class="badge {bc}">{s}</span>
                   <span style="font-family:JetBrains Mono,monospace;font-size:10px;color:{dc};">{item['conf']}%</span>
-                  <span class="proxy-tag">{proxy}</span>
+                  <span style="font-family:JetBrains Mono,monospace;font-size:9px;color:#3a3550;">{csize}</span>
                   <span style="font-family:JetBrains Mono,monospace;font-size:9px;color:{tqs_c};">TQS {tqs_v}</span>
                   {div_str}
                 </div>
                 <div style="font-family:JetBrains Mono,monospace;font-size:10px;color:#3a3550;">SL <span style="color:#ff2d55;">{sfmt2}</span> &nbsp; TP <span style="color:#1aff8a;">{tfmt2}</span></div>
-                <div style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:12px;color:#5a5570;">{reasons_str}</div>
+                <div style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:12px;color:#5a5570;">{" - ".join(item.get("reasons",[])[:2])}</div>
               </div>
             </div>""", unsafe_allow_html=True)
     with sf2:
-        st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.18em;color:#c9a84c;margin-bottom:16px;">STATISTICS</div>', unsafe_allow_html=True)
+        st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.15em;color:#c9a84c;margin-bottom:16px;">STATISTICS</div>', unsafe_allow_html=True)
         if feed:
             tot=len(feed); longs=sum(1 for x in feed if "BUY" in x["signal"] or x["signal"]=="OVERSOLD")
             avg_conf=np.mean([x["conf"] for x in feed]); avg_tqs=np.mean([x.get("tqs",0) for x in feed])
@@ -2040,8 +2046,8 @@ with t4:
 # TAB 5 - LIVE CHARTS
 # ==============================================================
 with t5:
-    st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.18em;color:#c9a84c;margin-bottom:16px;">LIVE CHARTS</div>', unsafe_allow_html=True)
-    mk=st.selectbox("Instrument",SEL,key="charts_mk")
+    st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.15em;color:#c9a84c;margin-bottom:16px;">LIVE CHARTS</div>', unsafe_allow_html=True)
+    mk=st.selectbox("Contract",SEL,key="charts_mk")
     sig=market_signals[mk]; closes=raw_data[mk]["closes"]
     if len(closes)>=30:
         _,bb_u,bb_l,_=bb_bands(closes)
@@ -2064,8 +2070,7 @@ with t5:
         if sig.get("stop"): fig.add_hline(y=sig["stop"],line=dict(color="#ff2d55",width=1,dash="dash"),annotation_text="SL",row=1,col=1)
         if sig.get("target"): fig.add_hline(y=sig["target"],line=dict(color="#1aff8a",width=1,dash="dash"),annotation_text="TP",row=1,col=1)
         if macd_vals:
-            mx=list(range(26,26+len(macd_vals)))
-            mc_c=["#1aff8a" if v>=0 else "#ff2d55" for v in macd_vals]
+            mx=list(range(26,26+len(macd_vals))); mc_c=["#1aff8a" if v>=0 else "#ff2d55" for v in macd_vals]
             fig.add_trace(go.Bar(x=mx,y=macd_vals,name="MACD",marker=dict(color=mc_c,opacity=0.4)),row=2,col=1)
             sx=list(range(26,26+len(macd_sv)))
             fig.add_trace(go.Scatter(x=sx,y=macd_sv,mode="lines",name="Signal",line=dict(color="#00c4ff",width=1)),row=2,col=1)
@@ -2087,48 +2092,43 @@ with t5:
 # TAB 6 - RULES ENGINE
 # ==============================================================
 with t6:
-    st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.18em;color:#c9a84c;margin-bottom:16px;">RULES ENGINE - APEX EDITION</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.15em;color:#c9a84c;margin-bottom:16px;">RULES ENGINE</div>', unsafe_allow_html=True)
     qp1,qp2,qp3,qp4,qp5=st.columns(5)
     with qp1:
         if st.button("Trend-Only"):
             st.session_state["rule_set"].append({"type":"trend_only","value":1,"active":True,"name":"Trend Only","desc":"Only trade with EMA stack alignment"})
             state_save(); st.rerun()
     with qp2:
-        if st.button("Skip Lunch"):
-            st.session_state["rule_set"].append({"type":"no_trade_hours","h_from":12,"h_to":13,"value":0,"active":True,"name":"Lunch Lockout","desc":"No trades 12:00-13:00 ET"})
+        if st.button("RTH Only"):
+            st.session_state["rule_set"].append({"type":"no_rth","value":0,"active":True,"name":"RTH Only","desc":"Block trades outside 9:30am-4pm ET regular trading hours"})
             state_save(); st.rerun()
     with qp3:
-        if st.button("Vol Min 1.2x"):
-            st.session_state["rule_set"].append({"type":"vol_min","value":1.2,"active":True,"name":"Volume Floor","desc":"Require 1.2x avg volume"})
+        if st.button("Skip Lunch"):
+            st.session_state["rule_set"].append({"type":"no_trade_hours","h_from":12,"h_to":13,"value":0,"active":True,"name":"Lunch Lockout","desc":"No trades 12:00-13:00 ET - low volume chop"})
             state_save(); st.rerun()
     with qp4:
-        if st.button("Cap ATR 6%"):
-            st.session_state["rule_set"].append({"type":"atr_max","value":6.0,"active":True,"name":"ATR Cap","desc":"Block when ATR% > 6%"})
+        if st.button("Cap ATR 3%"):
+            st.session_state["rule_set"].append({"type":"atr_max","value":3.0,"active":True,"name":"ATR Cap","desc":"Block when ATR% > 3% - too volatile for clean entries"})
             state_save(); st.rerun()
     with qp5:
         if st.button("Apex $200 Guard"):
-            st.session_state["rule_set"].append({"type":"apex_daily_guard","value":200,"active":True,"name":"Apex Daily Guard","desc":"Block when less than $200 daily headroom"})
+            st.session_state["rule_set"].append({"type":"apex_daily_guard","value":200,"active":True,"name":"Apex Guard","desc":"Block when less than $200 daily headroom left"})
             state_save(); st.rerun()
     st.divider()
     rl1,rl2=st.columns([2,1])
     with rl1:
-        st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.12em;color:#5a5570;margin-bottom:8px;">ACTIVE RULES</div>', unsafe_allow_html=True)
         if not st.session_state["rule_set"]:
             st.markdown('<div style="font-family:Cormorant Garamond,serif;font-style:italic;color:#5a5570;">No rules. Desks trade on raw signal alone.</div>', unsafe_allow_html=True)
         for i,rule in enumerate(st.session_state["rule_set"]):
-            active=rule.get("active",True)
-            rc2="rule-on" if active else "rule-off"
-            bc2="badge-long" if active else "badge-hold"
-            al2="ACTIVE" if active else "OFF"
+            active=rule.get("active",True); rc2="rule-on" if active else "rule-off"
+            bc2="badge-long" if active else "badge-hold"; al2="ACTIVE" if active else "OFF"
             cols=st.columns([5,1,1])
-            with cols[0]:
-                st.markdown(f'<div class="rule-row {rc2}"><div><div class="rule-name">{rule.get("name",rule.get("type",""))}</div><div class="rule-desc">{rule.get("desc","")}</div></div><span class="badge {bc2}">{al2}</span></div>', unsafe_allow_html=True)
+            with cols[0]: st.markdown(f'<div class="rule-row {rc2}"><div><div class="rule-name">{rule.get("name",rule.get("type",""))}</div><div class="rule-desc">{rule.get("desc","")}</div></div><span class="badge {bc2}">{al2}</span></div>', unsafe_allow_html=True)
             with cols[1]:
                 if st.button("Toggle",key=f"tog_{i}"): st.session_state["rule_set"][i]["active"]=not active; state_save(); st.rerun()
             with cols[2]:
                 if st.button("X",key=f"del_{i}"): st.session_state["rule_set"].pop(i); state_save(); st.rerun()
     with rl2:
-        st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.12em;color:#5a5570;margin-bottom:8px;">RULE IMPACT</div>', unsafe_allow_html=True)
         for mk,sig in market_signals.items():
             blocked=sig.get("rule_block",False); ic="#ff2d55" if blocked else "#1aff8a"; lbl="BLOCKED" if blocked else "OPEN"
             st.markdown(f'<div style="display:flex;justify-content:space-between;padding:5px 12px;background:#0d0c16;border:1px solid #12101e;border-left:2px solid {ic};border-radius:1px;margin-bottom:4px;font-family:JetBrains Mono,monospace;font-size:11px;"><span style="color:#fff;">{mk}</span><span style="color:{ic};font-weight:600;">{lbl}</span></div>', unsafe_allow_html=True)
@@ -2137,10 +2137,9 @@ with t6:
 # TAB 7 - BACKTEST
 # ==============================================================
 with t7:
-    st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.18em;color:#c9a84c;margin-bottom:8px;">BACKTEST - APEX RULES APPLIED</div>', unsafe_allow_html=True)
-    st.markdown('<div style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:13px;color:#5a5570;margin-bottom:16px;">Respects Apex daily loss limit - days where $1K is hit get no further trades.</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.15em;color:#c9a84c;margin-bottom:8px;">BACKTEST - APEX RULES APPLIED</div>', unsafe_allow_html=True)
     bc=st.columns(5)
-    with bc[0]: bt_mk=st.selectbox("Instrument",SEL,key="bt_mk")
+    with bc[0]: bt_mk=st.selectbox("Contract",SEL,key="bt_mk")
     with bc[1]: bt_rr=st.slider("RR",1.0,5.0,2.0,0.25,key="bt_rr")
     with bc[2]: bt_risk=st.slider("Risk %",0.25,2.0,1.0,0.25,key="bt_risk")/100
     with bc[3]: bt_rules=st.checkbox("Apply rules",value=True,key="bt_rules")
@@ -2175,20 +2174,20 @@ with t7:
 # TAB 8 - AI ANALYST
 # ==============================================================
 with t8:
-    st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.18em;color:#c9a84c;margin-bottom:8px;">AI ANALYST - APEX AWARE</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.15em;color:#c9a84c;margin-bottom:8px;">AI ANALYST - APEX NINJATRADER AWARE</div>', unsafe_allow_html=True)
     if not CLKEY:
         st.warning("Add a Claude API key in the sidebar to enable the AI Analyst.")
     else:
         ac1,ac2,ac3,ac4=st.columns(4)
         question=None
         with ac1:
-            if st.button("Full Brief"): question="Give me a complete brief on every instrument. Include which Apex futures contract to use and risk sizing for a $50K account with $1K daily limit."
+            if st.button("Full Brief"): question="Give me a complete brief on all contracts. Include specific point targets, contract sizing, and stop levels for a $50K Apex account with $1K daily loss limit. Tell me which contract gives me the best shot at $1,000 today."
         with ac2:
-            if st.button("Best Trade"): question="What is the single best trade idea right now? Give exact entry, stop, target, Apex contract, and how many contracts at 1% risk on $50K."
+            if st.button("Best Trade"): question="What is the single best NinjaTrader futures trade right now? Give exact entry, stop in points, target in points, which contract, how many contracts at 1% risk, and estimated dollar profit if it hits."
         with ac3:
-            if st.button("Risk Check"): question="Audit my Apex account risk. Check trailing drawdown, daily P&L, and whether I should still be trading today."
+            if st.button("Risk Check"): question="Audit my Apex account risk. Check daily P&L, trailing drawdown, and whether I should be adding positions or calling it a day."
         with ac4:
-            if st.button("Divergence"): question="Walk through every active divergence. Which is most actionable for an Apex futures trader?"
+            if st.button("$1K Setup"): question="Walk me through the exact best setup to make $1,000 today with minimum risk. Which contract, how many, where to enter, where to stop, where to take profit. Be specific with numbers."
         custom=st.text_area("Custom question:",key="ai_q",height=80)
         if st.button("Ask Nigel",type="primary"): question=custom or question
         if question:
@@ -2203,92 +2202,17 @@ with t8:
             st.markdown(f'<div class="ai-response" style="margin-bottom:12px;"><div class="ai-header">NIGEL - {entry["time"]}</div><div style="font-family:Cormorant Garamond,serif;font-style:italic;color:#5a5570;font-size:13px;margin-bottom:10px;">Q: {entry["q"]}</div><div>{entry["a"].replace(chr(10),"<br>")}</div></div>', unsafe_allow_html=True)
 
 # ==============================================================
-# TAB 9 - EDGE TOOLS
-# ==============================================================
-with t9:
-    et1,et2,et3=st.tabs(["RISK OF RUIN","CORRELATIONS","REGIME & VOL"])
-    with et1:
-        st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.18em;color:#c9a84c;margin-bottom:16px;">RISK OF RUIN - KELLY ENGINE - APEX CALIBRATED</div>', unsafe_allow_html=True)
-        rc1,rc2=st.columns(2)
-        with rc1:
-            wr_=st.slider("Win Rate %",30,80,55,1,key="ror_wr")
-            rr_=st.slider("Reward:Risk",1.0,5.0,2.0,0.25,key="ror_rr")
-            risk_=st.slider("Risk per trade %",0.25,2.0,1.0,0.25,key="ror_risk")/100
-            kdata=risk_of_ruin(wr_,rr_,risk_)
-            ec="#1aff8a" if kdata["edge"]>0 else "#ff2d55"
-            risk_dollar=APEX_CONFIG["account_size"]*risk_
-            max_daily_trades=int(APEX_CONFIG["daily_loss_limit"]/max(risk_dollar,1))
-            st.markdown(f"""
-            <div class="kelly-panel">
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-                <div><div class="stat-val" style="color:{ec};">{kdata['edge']:+.2f}%</div><div class="stat-lbl">Edge/Trade</div></div>
-                <div><div class="stat-val" style="color:#c9a84c;">{kdata['half_kelly']:.2f}%</div><div class="stat-lbl">Half-Kelly</div></div>
-                <div><div class="stat-val" style="color:#ff2d55;">{kdata['ror']:.1f}%</div><div class="stat-lbl">Risk of Ruin</div></div>
-                <div><div class="stat-val">${risk_dollar:,.0f}</div><div class="stat-lbl">$ Per Trade</div></div>
-              </div>
-              <hr>
-              <div style="font-family:JetBrains Mono,monospace;font-size:10px;color:#5a5570;line-height:1.8;">
-                <div>Max losing trades before Apex daily lock: <span style="color:{"#ff2d55" if max_daily_trades<=2 else "#c9a84c"};">{max_daily_trades}</span></div>
-                <div>{"Over Half-Kelly - high variance risk" if kdata["vs_half_kelly"]=="OVER" else "Under Half-Kelly - disciplined sizing"}</div>
-              </div>
-            </div>""", unsafe_allow_html=True)
-        with rc2:
-            wrs=list(range(35,76,5)); rrs=[1.0,1.5,2.0,2.5,3.0,4.0]
-            heat=[[risk_of_ruin(wr_h,rr_h,risk_)["ror"] for rr_h in rrs] for wr_h in wrs]
-            fig_h=go.Figure(go.Heatmap(z=heat,x=[f"{r}:1" for r in rrs],y=[f"{w}%" for w in wrs],
-                colorscale=[[0,"#1aff8a"],[0.4,"#c9a84c"],[1,"#ff2d55"]],
-                hovertemplate="WR %{y} - RR %{x} - RoR %{z:.1f}%<extra></extra>"))
-            fig_h.update_layout(height=300,template="plotly_dark",paper_bgcolor="#05040a",plot_bgcolor="#09080f",
-                margin=dict(l=0,r=0,t=10,b=0),font=dict(family="JetBrains Mono",size=10,color="#5a5570"))
-            st.plotly_chart(fig_h,use_container_width=True,key="ror_heat")
-    with et2:
-        st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.18em;color:#c9a84c;margin-bottom:16px;">CROSS-INSTRUMENT CORRELATIONS</div>', unsafe_allow_html=True)
-        if len(SEL)>=2:
-            min_len=min(min(len(raw_data[mk]["closes"]) for mk in SEL),30)
-            ret_df=pd.DataFrame({mk:[math.log(raw_data[mk]["closes"][-min_len:][i]/raw_data[mk]["closes"][-min_len:][i-1]) for i in range(1,min_len)] for mk in SEL})
-            corr=ret_df.corr().round(2)
-            fig_c=go.Figure(go.Heatmap(z=corr.values,x=corr.columns,y=corr.index,
-                colorscale=[[0,"#ff2d55"],[0.5,"#0d0c16"],[1,"#1aff8a"]],zmid=0,
-                text=corr.values,texttemplate="%{text:.2f}",textfont=dict(family="JetBrains Mono",size=12,color="#fff")))
-            fig_c.update_layout(height=360,template="plotly_dark",paper_bgcolor="#05040a",plot_bgcolor="#09080f",
-                margin=dict(l=0,r=0,t=10,b=0),font=dict(family="JetBrains Mono",size=10,color="#5a5570"))
-            st.plotly_chart(fig_c,use_container_width=True,key="corr_heat")
-            st.markdown('<div style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:13px;color:#5a5570;margin-top:8px;">SOL/AVAX and TQQQ/SOXL are SMT pairs - divergence between them creates high-conviction signals.</div>', unsafe_allow_html=True)
-        else: st.info("Select at least 2 instruments.")
-    with et3:
-        st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.18em;color:#c9a84c;margin-bottom:16px;">REGIME AND VOLATILITY</div>', unsafe_allow_html=True)
-        for mk in SEL:
-            sig=market_signals[mk]; reg=sig.get("regime",{}); vr=sig.get("vol_regime",{})
-            rn=reg.get("regime","?"); rc3="#1aff8a" if rn=="TRENDING" else "#c9a84c" if rn=="RANGING" else "#ff2d55"
-            fc2=vr.get("forecast","?"); fcc="#1aff8a" if fc2=="CONTRACTING" else "#c9a84c" if fc2=="STABLE" else "#ff2d55"
-            st.markdown(f"""
-            <div class="panel" style="margin-bottom:8px;border-left:2px solid {rc3};">
-              <div style="display:flex;justify-content:space-between;align-items:center;">
-                <div><span style="font-family:Cinzel,serif;font-weight:700;color:#fff;">{mk}</span>
-                <span style="font-family:Cormorant Garamond,serif;font-style:italic;color:#5a5570;margin-left:6px;">{MARKETS[mk]['label']}</span>
-                <span class="proxy-tag" style="margin-left:6px;">{MARKETS[mk]['apex_proxy']}</span></div>
-                <span class="badge" style="background:{rc3}22;color:{rc3};border:1px solid {rc3}55;">{rn}</span>
-              </div>
-              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:10px;">
-                <div><div style="font-family:JetBrains Mono,monospace;color:#fff;">{reg.get('adx_lite',0)}</div><div class="stat-lbl">ADX-lite</div></div>
-                <div><div style="font-family:JetBrains Mono,monospace;color:#fff;">{reg.get('bb_width_pct',0):.1f}%</div><div class="stat-lbl">BB Width</div></div>
-                <div><div style="font-family:JetBrains Mono,monospace;color:#fff;">{vr.get('rv',0):.1f}%</div><div class="stat-lbl">Realised Vol</div></div>
-                <div><div style="font-family:JetBrains Mono,monospace;color:{fcc};">{fc2}</div><div class="stat-lbl">Forecast</div></div>
-              </div>
-            </div>""", unsafe_allow_html=True)
-
-# ==============================================================
 # ALWAYS-ON BAR + AUTO-REFRESH
 # ==============================================================
 state_kb=PERSIST_PATH.stat().st_size/1024 if PERSIST_PATH.exists() else 0
 secs_til=max(0,int(st.session_state["refresh_interval"]-(time.time()-st.session_state["last_refresh"])))
 if apex_status["locked"]: apex_bar_color="#ff2d55"; apex_bar_text=f"LOCKED - {apex_status['lock_reason'][:50]}"
-elif apex_status["warnings"]: apex_bar_color="#ff9500"; apex_bar_text=f"Daily left ${APEX_CONFIG['daily_loss_limit']+apex_status['daily_pnl']:,.0f}"
-else: apex_bar_color="#1aff8a"; apex_bar_text=f"APEX CLEAR - daily ${APEX_CONFIG['daily_loss_limit']+apex_status['daily_pnl']:,.0f} left"
-sessions_str=" - ".join([s for s,_ in sessions_now])
+elif apex_status["warnings"]: apex_bar_color="#ff9500"; apex_bar_text=f"Daily headroom ${APEX_CONFIG['daily_loss_limit']+apex_status['daily_pnl']:,.0f}"
+else: apex_bar_color="#1aff8a"; apex_bar_text=f"APEX CLEAR - ${APEX_CONFIG['daily_loss_limit']+apex_status['daily_pnl']:,.0f} daily left"
+sessions_str=" | ".join([s for s,_ in sessions_now])
 st.markdown(f"""
 <div class="always-on-bar">
-  <div><span class="live-dot"></span>NIGEL v5.3 APEX - {sessions_str}</div>
+  <div><span class="live-dot"></span>NIGEL v5.4 APEX NINJATRADER - {sessions_str}</div>
   <div style="color:{apex_bar_color};"><span class="apex-dot" style="background:{apex_bar_color};"></span>{apex_bar_text}</div>
   <div>State {state_kb:.1f} KB - Refresh {secs_til}s</div>
 </div>
