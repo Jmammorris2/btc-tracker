@@ -2224,4 +2224,238 @@ with t5:
             if gap_t and "GAP" in gap_t and "NO" not in gap_t and "UNCLEAR" not in gap_t: strat_html+=f'<span style="font-family:JetBrains Mono,monospace;font-size:8px;color:var(--sapphire);margin-left:4px;">{_esc(gap_t)}</span>'
             reasons_esc=_esc(" - ".join(item.get("reasons",[])[:2]))
             st.markdown(f"""
-            <div style="display:flex;gap:12
+            <div style="display:flex;gap:12px;align-items:flex-start;padding:9px 0;border-bottom:1px solid #12101e;">
+              <div style="font-family:JetBrains Mono,monospace;font-size:9px;color:#3a3550;min-width:58px;padding-top:2px;">{item['time']}</div>
+              <div style="flex:1;">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;flex-wrap:wrap;">
+                  <span style="font-family:Cinzel,serif;font-weight:700;color:#fff;">{item['mk']}</span>
+                  <span class="badge {bc}">{s}</span>
+                  <span style="font-family:JetBrains Mono,monospace;font-size:10px;color:{dc};">{item['conf']}%</span>
+                  <span style="font-family:JetBrains Mono,monospace;font-size:9px;color:#c9a84c;">{fp}</span>
+                  <span style="font-family:JetBrains Mono,monospace;font-size:9px;color:#3a3550;">{csize}</span>
+                  <span style="font-family:JetBrains Mono,monospace;font-size:9px;color:{tqs_c};">TQS {tqs_v}</span>
+                  {div_str}{strat_html}
+                </div>
+                <div style="font-family:JetBrains Mono,monospace;font-size:10px;color:#3a3550;">
+                  SL <span style="color:#ff2d55;">{sl_f}</span> &nbsp; TP <span style="color:#1aff8a;">{tp_f}</span>
+                </div>
+                <div style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:12px;color:#5a5570;">{reasons_esc}</div>
+              </div>
+            </div>""", unsafe_allow_html=True)
+    with sf2:
+        st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.15em;color:#c9a84c;margin-bottom:16px;">STATISTICS</div>', unsafe_allow_html=True)
+        if feed:
+            tot=len(feed); longs=sum(1 for x in feed if "BUY" in x["signal"] or x["signal"]=="OVERSOLD")
+            avg_conf=np.mean([x["conf"] for x in feed]); avg_tqs=np.mean([x.get("tqs",0) for x in feed])
+            st.markdown(f'<div class="panel panel-gold" style="margin-bottom:8px;"><div class="stat-val" style="color:#00c4ff;">{tot}</div><div class="stat-lbl">Total Signals</div></div>', unsafe_allow_html=True)
+            c1a,c1b=st.columns(2)
+            with c1a: st.markdown(f'<div class="panel panel-em"><div class="stat-val" style="color:#1aff8a;">{longs}</div><div class="stat-lbl">Long</div></div>', unsafe_allow_html=True)
+            with c1b: st.markdown(f'<div class="panel panel-cr"><div class="stat-val" style="color:#ff2d55;">{tot-longs}</div><div class="stat-lbl">Short</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="panel" style="margin-top:8px;"><div class="stat-val" style="color:#c9a84c;">{avg_conf:.0f}%</div><div class="stat-lbl">Avg Conf</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="panel" style="margin-top:8px;"><div class="stat-val" style="color:#c9a84c;">{avg_tqs:.0f}</div><div class="stat-lbl">Avg TQS</div></div>', unsafe_allow_html=True)
+
+# ==============================================================
+# TAB 6 - LIVE CHARTS
+# ==============================================================
+with t6:
+    st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.15em;color:#c9a84c;margin-bottom:16px;">LIVE CHARTS - FUTURES PRICE LEVELS</div>', unsafe_allow_html=True)
+    mk=st.selectbox("Contract",SEL,key="charts_mk")
+    sig=market_signals[mk]; closes=raw_data[mk]["closes"]
+    highs_c=raw_data[mk].get("highs",[c*1.005 for c in closes])
+    lows_c=raw_data[mk].get("lows",[c*0.995 for c in closes])
+    scale=MARKETS[mk]["scale"]
+    if len(closes)>=30:
+        closes_scaled=[c*scale for c in closes]
+        highs_scaled=[h*scale for h in highs_c]
+        lows_scaled=[l*scale for l in lows_c]
+        _,bb_u,bb_l,_=bb_bands(closes)
+        bb_u_s=[v*scale if v else None for v in bb_u]
+        bb_l_s=[v*scale if v else None for v in bb_l]
+        e8=[v*scale for v in ema_series(closes,8)]
+        e21=[v*scale for v in ema_series(closes,21)]
+        e50=[v*scale for v in (ema_series(closes,50) if len(closes)>=50 else ema_series(closes,21))]
+        rsi_arr=rsi_full(closes,14)
+        macd_vals=[]
+        for i in range(26,len(closes)+1):
+            sl=closes[:i]; macd_vals.append(ema_series(sl,12)[-1]-ema_series(sl,26)[-1])
+        macd_sv=ema_series(macd_vals,9) if len(macd_vals)>=9 else macd_vals
+        st_i=strategies_per_market.get(mk,{})
+        orb=st_i.get("orb",{}); pdhl=st_i.get("pdhl",{})
+        x_vals=list(range(len(closes)))
+        fig=make_subplots(rows=4,cols=1,shared_xaxes=True,vertical_spacing=0.04,row_heights=[0.5,0.18,0.16,0.16],
+            subplot_titles=["Price + ORB Levels","MACD","RSI","Volatility %"])
+        fig.add_trace(go.Scatter(x=x_vals,y=closes_scaled,mode="lines",name="Price",line=dict(color="#fff",width=2)),row=1,col=1)
+        fig.add_trace(go.Scatter(x=x_vals,y=e8,mode="lines",name="EMA8",line=dict(color="#c9a84c",width=1,dash="dot")),row=1,col=1)
+        fig.add_trace(go.Scatter(x=x_vals,y=e21,mode="lines",name="EMA21",line=dict(color="#1aff8a",width=1,dash="dot")),row=1,col=1)
+        fig.add_trace(go.Scatter(x=x_vals,y=e50,mode="lines",name="EMA50",line=dict(color="#ff2d55",width=1,dash="dot")),row=1,col=1)
+        bx=list(range(len(bb_u_s)))
+        fig.add_trace(go.Scatter(x=bx,y=bb_u_s,mode="lines",name="BB Upper",line=dict(color="rgba(201,168,76,0.3)",width=1)),row=1,col=1)
+        fig.add_trace(go.Scatter(x=bx,y=bb_l_s,mode="lines",name="BB Lower",fill="tonexty",fillcolor="rgba(201,168,76,0.04)",line=dict(color="rgba(201,168,76,0.3)",width=1)),row=1,col=1)
+        if orb.get("range_high"):
+            rh_s=orb["range_high"]*scale; rl_s=orb["range_low"]*scale
+            fig.add_hline(y=rh_s,line=dict(color="#a855f7",width=1,dash="dash"),annotation_text=f"ORB High {fmt_futures(mk,orb['range_high'])}",row=1,col=1)
+            fig.add_hline(y=rl_s,line=dict(color="#a855f7",width=1,dash="dash"),annotation_text=f"ORB Low {fmt_futures(mk,orb['range_low'])}",row=1,col=1)
+        if pdhl.get("pdh"):
+            fig.add_hline(y=pdhl["pdh"]*scale,line=dict(color="#1aff8a",width=1,dash="dot"),annotation_text=f"PDH {fmt_futures(mk,pdhl['pdh'])}",row=1,col=1)
+            fig.add_hline(y=pdhl["pdl"]*scale,line=dict(color="#ff2d55",width=1,dash="dot"),annotation_text=f"PDL {fmt_futures(mk,pdhl['pdl'])}",row=1,col=1)
+        if sig.get("stop"): fig.add_hline(y=sig["stop"]*scale,line=dict(color="#ff2d55",width=2,dash="dash"),annotation_text=f"SL {fmt_futures(mk,sig['stop'])}",row=1,col=1)
+        if sig.get("target"): fig.add_hline(y=sig["target"]*scale,line=dict(color="#1aff8a",width=2,dash="dash"),annotation_text=f"TP {fmt_futures(mk,sig['target'])}",row=1,col=1)
+        if macd_vals:
+            mx=list(range(26,26+len(macd_vals))); mc_c=["#1aff8a" if v>=0 else "#ff2d55" for v in macd_vals]
+            fig.add_trace(go.Bar(x=mx,y=macd_vals,name="MACD",marker=dict(color=mc_c,opacity=0.4)),row=2,col=1)
+            sx=list(range(26,26+len(macd_sv)))
+            fig.add_trace(go.Scatter(x=sx,y=macd_sv,mode="lines",name="Signal",line=dict(color="#00c4ff",width=1)),row=2,col=1)
+        rsi_clean=[v if v is not None else 50 for v in rsi_arr]
+        fig.add_trace(go.Scatter(x=x_vals,y=rsi_clean,mode="lines",name="RSI",line=dict(color="#a855f7",width=2)),row=3,col=1)
+        fig.add_hline(y=70,line=dict(color="#ff2d55",width=1,dash="dot"),row=3,col=1)
+        fig.add_hline(y=30,line=dict(color="#1aff8a",width=1,dash="dot"),row=3,col=1)
+        bar_changes=[abs((closes[i]-closes[i-1])/closes[i-1]*100) if i>0 else 0 for i in range(len(closes))]
+        fig.add_trace(go.Bar(x=x_vals,y=bar_changes,name="Delta%",marker=dict(color="#c9a84c",opacity=0.4)),row=4,col=1)
+        fig.update_layout(height=720,template="plotly_dark",paper_bgcolor="#05040a",plot_bgcolor="#09080f",
+            margin=dict(l=0,r=0,t=30,b=0),showlegend=True,
+            legend=dict(orientation="h",y=1.04,font=dict(family="JetBrains Mono",size=9)),
+            font=dict(family="JetBrains Mono",size=10,color="#5a5570"))
+        for i in range(1,5): fig.update_xaxes(gridcolor="#12101e",row=i,col=1); fig.update_yaxes(gridcolor="#12101e",row=i,col=1)
+        st.plotly_chart(fig,use_container_width=True,key=f"chart_{mk}")
+        st.markdown(f"""
+        <div style="font-family:JetBrains Mono,monospace;font-size:10px;color:#5a5570;line-height:2;padding:10px;background:#09080f;border:1px solid #12101e;border-radius:1px;">
+          Purple dashed = ORB range high/low &nbsp;|&nbsp; Green dashed = PDH &nbsp;|&nbsp; Red dashed = PDL<br>
+          All price labels shown in correct <b style="color:#fff;">{m['sub']}</b> futures prices ({m['contract_size']}) &nbsp;|&nbsp; Scale factor: x{scale}
+        </div>""", unsafe_allow_html=True)
+    else: st.warning(f"Not enough data for {mk}")
+
+# ==============================================================
+# TAB 7 - RULES ENGINE
+# ==============================================================
+with t7:
+    st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.15em;color:#c9a84c;margin-bottom:16px;">RULES ENGINE</div>', unsafe_allow_html=True)
+    qp1,qp2,qp3,qp4,qp5=st.columns(5)
+    with qp1:
+        if st.button("Trend-Only"):
+            st.session_state["rule_set"].append({"type":"trend_only","value":1,"active":True,"name":"Trend Only","desc":"Only trade with EMA stack alignment"})
+            state_save(); st.rerun()
+    with qp2:
+        if st.button("RTH Only"):
+            st.session_state["rule_set"].append({"type":"no_rth","value":0,"active":True,"name":"RTH Only","desc":"Block trades outside 9:30am-4pm ET"})
+            state_save(); st.rerun()
+    with qp3:
+        if st.button("Skip Lunch"):
+            st.session_state["rule_set"].append({"type":"no_trade_hours","h_from":12,"h_to":13,"value":0,"active":True,"name":"Lunch Lockout","desc":"No trades 12:00-13:00 ET"})
+            state_save(); st.rerun()
+    with qp4:
+        if st.button("Cap ATR 3%"):
+            st.session_state["rule_set"].append({"type":"atr_max","value":3.0,"active":True,"name":"ATR Cap","desc":"Block when ATR exceeds 3%"})
+            state_save(); st.rerun()
+    with qp5:
+        if st.button("Apex $200 Guard"):
+            st.session_state["rule_set"].append({"type":"apex_daily_guard","value":200,"active":True,"name":"Apex Guard","desc":"Block when less than $200 daily headroom"})
+            state_save(); st.rerun()
+    st.divider()
+    rl1,rl2=st.columns([2,1])
+    with rl1:
+        if not st.session_state["rule_set"]:
+            st.markdown('<div style="font-family:Cormorant Garamond,serif;font-style:italic;color:#5a5570;">No rules active. Desks trade on raw signal alone.</div>', unsafe_allow_html=True)
+        for i,rule in enumerate(st.session_state["rule_set"]):
+            active=rule.get("active",True); rc2="rule-on" if active else "rule-off"
+            bc2="badge-long" if active else "badge-hold"; al2="ACTIVE" if active else "OFF"
+            cols=st.columns([5,1,1])
+            with cols[0]: st.markdown(f'<div class="rule-row {rc2}"><div><div class="rule-name">{_esc(rule.get("name",rule.get("type","")))}</div><div class="rule-desc">{_esc(rule.get("desc",""))}</div></div><span class="badge {bc2}">{al2}</span></div>', unsafe_allow_html=True)
+            with cols[1]:
+                if st.button("Toggle",key=f"tog_{i}"): st.session_state["rule_set"][i]["active"]=not active; state_save(); st.rerun()
+            with cols[2]:
+                if st.button("X",key=f"del_{i}"): st.session_state["rule_set"].pop(i); state_save(); st.rerun()
+    with rl2:
+        for mk,sig in market_signals.items():
+            blocked=sig.get("rule_block",False); ic="#ff2d55" if blocked else "#1aff8a"; lbl="BLOCKED" if blocked else "OPEN"
+            st.markdown(f'<div style="display:flex;justify-content:space-between;padding:5px 12px;background:#0d0c16;border:1px solid #12101e;border-left:2px solid {ic};border-radius:1px;margin-bottom:4px;font-family:JetBrains Mono,monospace;font-size:11px;"><span style="color:#fff;">{mk}</span><span style="color:{ic};font-weight:600;">{lbl}</span></div>', unsafe_allow_html=True)
+
+# ==============================================================
+# TAB 8 - BACKTEST
+# ==============================================================
+with t8:
+    st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.15em;color:#c9a84c;margin-bottom:8px;">BACKTEST - APEX RULES APPLIED</div>', unsafe_allow_html=True)
+    bc=st.columns(5)
+    with bc[0]: bt_mk=st.selectbox("Contract",SEL,key="bt_mk")
+    with bc[1]: bt_rr=st.slider("RR",1.0,5.0,2.0,0.25,key="bt_rr")
+    with bc[2]: bt_risk=st.slider("Risk %",0.25,2.0,1.0,0.25,key="bt_risk")/100
+    with bc[3]: bt_rules=st.checkbox("Apply rules",value=True,key="bt_rules")
+    with bc[4]: run_bt=st.button("RUN",type="primary",key="bt_run")
+    if run_bt:
+        with st.spinner("Running backtest..."):
+            result=run_backtest_nigel(raw_data[bt_mk]["closes"],bt_mk,bt_risk,bt_rr,
+                                      st.session_state["rule_set"] if bt_rules else [])
+            st.session_state["bt_cache"][f"{bt_mk}_{bt_rr}_{bt_risk}"]=result; state_save()
+    if st.session_state["bt_cache"]:
+        result=list(st.session_state["bt_cache"].values())[-1]
+        if "error" in result: st.error(result["error"])
+        else:
+            r1=st.columns(5); rc2="#1aff8a" if result["return_pct"]>0 else "#ff2d55"
+            with r1[0]: st.markdown(f'<div class="panel panel-gold"><div class="stat-val" style="color:{rc2};">${result["total_pnl"]:+,.0f}</div><div class="stat-lbl">Total P&L</div></div>', unsafe_allow_html=True)
+            with r1[1]: st.markdown(f'<div class="panel"><div class="stat-val" style="color:{rc2};">{result["return_pct"]:+.1f}%</div><div class="stat-lbl">Return</div></div>', unsafe_allow_html=True)
+            with r1[2]: st.markdown(f'<div class="panel"><div class="stat-val">{result["win_rate"]:.0f}%</div><div class="stat-lbl">Win Rate</div></div>', unsafe_allow_html=True)
+            with r1[3]: st.markdown(f'<div class="panel"><div class="stat-val">{result["pf"]:.2f}</div><div class="stat-lbl">Profit Factor</div></div>', unsafe_allow_html=True)
+            with r1[4]: st.markdown(f'<div class="panel"><div class="stat-val" style="color:#ff2d55;">{result["max_dd"]:.1f}%</div><div class="stat-lbl">Max DD</div></div>', unsafe_allow_html=True)
+            fig_bt=go.Figure()
+            fig_bt.add_trace(go.Scatter(y=result["equity"],mode="lines",line=dict(color="#c9a84c",width=2),fill="tozeroy",fillcolor="rgba(201,168,76,0.04)"))
+            fig_bt.add_hline(y=result["start"],line=dict(color="#3a3550",width=1,dash="dot"))
+            fig_bt.update_layout(height=260,template="plotly_dark",paper_bgcolor="#05040a",plot_bgcolor="#09080f",
+                margin=dict(l=0,r=0,t=10,b=0),showlegend=False,
+                xaxis=dict(gridcolor="#12101e"),yaxis=dict(gridcolor="#12101e"),
+                font=dict(family="JetBrains Mono",size=10,color="#5a5570"))
+            st.plotly_chart(fig_bt,use_container_width=True,key="bt_chart")
+            with st.expander(f"Trade Log ({result['total_trades']} trades)"):
+                if isinstance(result["trades"],pd.DataFrame): st.dataframe(result["trades"],use_container_width=True,hide_index=True)
+
+# ==============================================================
+# TAB 9 - AI ANALYST
+# ==============================================================
+with t9:
+    st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.15em;color:#c9a84c;margin-bottom:8px;">AI ANALYST - ORB AND STRATEGY AWARE</div>', unsafe_allow_html=True)
+    if not CLKEY:
+        st.warning("Add a Claude API key in the sidebar to enable the AI Analyst.")
+    else:
+        ac1,ac2,ac3,ac4=st.columns(4)
+        question=None
+        with ac1:
+            if st.button("Full Brief"): question="Give me a complete brief on all contracts with correct futures prices. Include ORB levels, PDH/PDL, Gap status, and First Pullback setups. Tell me which contract gives the best shot at $1,000 today and exactly how many points I need."
+        with ac2:
+            if st.button("Best Trade"): question="What is the single best NinjaTrader futures trade right now? Give exact futures price entry, stop in points, target in points, which contract, how many contracts at 1% risk, and dollar profit if it hits. Include which strategy is triggering."
+        with ac3:
+            if st.button("ORB Setup"): question="Analyze all the Opening Range Breakout setups across my contracts. Which ones are breaking out of their range? Are there Gap and Go or First Pullback setups aligning with the ORB direction? Give specific NinjaTrader entry points."
+        with ac4:
+            if st.button("Risk Check"): question="Audit my Apex account risk. Check daily P&L, trailing drawdown, and whether I should be adding positions or calling it a day. What is my maximum position size right now?"
+        custom=st.text_area("Custom question:",key="ai_q",height=80)
+        if st.button("Ask Nigel",type="primary"): question=custom or question
+        if question:
+            with st.spinner("Thinking..."):
+                ctx=build_ai_context(market_signals,raw_data,diag,apex_status,strategies_per_market)
+                resp,err=call_claude(f"Context:\n{ctx}\n\nQuestion: {question}",AI_ANALYST_SYSTEM,CLKEY,1200)
+                if resp:
+                    st.session_state["ai_feed"].insert(0,{"q":question,"a":resp,"time":datetime.now().strftime("%H:%M:%S")})
+                    st.session_state["ai_feed"]=st.session_state["ai_feed"][:10]; state_save()
+                if err: st.error(err)
+        for entry in st.session_state["ai_feed"][:5]:
+            st.markdown(f'<div class="ai-response" style="margin-bottom:12px;"><div class="ai-header">NIGEL - {entry["time"]}</div><div style="font-family:Cormorant Garamond,serif;font-style:italic;color:#5a5570;font-size:13px;margin-bottom:10px;">Q: {_esc(entry["q"])}</div><div>{entry["a"].replace(chr(10),"<br>")}</div></div>', unsafe_allow_html=True)
+
+# ==============================================================
+# ALWAYS-ON BAR + AUTO-REFRESH
+# ==============================================================
+state_kb=PERSIST_PATH.stat().st_size/1024 if PERSIST_PATH.exists() else 0
+secs_til=max(0,int(st.session_state["refresh_interval"]-(time.time()-st.session_state["last_refresh"])))
+if apex_status["locked"]: apex_bar_color="#ff2d55"; apex_bar_text=f"LOCKED - {apex_status['lock_reason'][:50]}"
+elif apex_status["warnings"]: apex_bar_color="#ff9500"; apex_bar_text=f"Daily headroom ${APEX_CONFIG['daily_loss_limit']+apex_status['daily_pnl']:,.0f}"
+else: apex_bar_color="#1aff8a"; apex_bar_text=f"APEX CLEAR - ${APEX_CONFIG['daily_loss_limit']+apex_status['daily_pnl']:,.0f} daily left"
+sessions_str=" | ".join([s for s,_ in sessions_now])
+st.markdown(f"""
+<div class="always-on-bar">
+  <div><span class="live-dot"></span>NIGEL v5.5 ORB EDITION - {sessions_str}</div>
+  <div style="color:{apex_bar_color};"><span class="apex-dot" style="background:{apex_bar_color};"></span>{_esc(apex_bar_text)}</div>
+  <div>State {state_kb:.1f} KB - Refresh {secs_til}s</div>
+</div>
+<div style="height:44px;"></div>
+""", unsafe_allow_html=True)
+
+if st.session_state["always_on"]:
+    remaining=st.session_state["refresh_interval"]-(time.time()-st.session_state["last_refresh"])
+    if remaining<=0: st.cache_data.clear(); state_save(); time.sleep(1); st.rerun()
+    else: time.sleep(min(remaining,5)); st.rerun()
