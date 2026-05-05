@@ -1,7 +1,8 @@
 """
-NIGEL - Private Trading Intelligence v5.4 - APEX NINJATRADER EDITION
-Real NinjaTrader/Apex contracts: NQ, CL, GC, MNQ, MES, MBT
-SIMULATION ONLY - no real orders execute.
+NIGEL v5.5 - APEX NINJATRADER EDITION
+Real Apex futures: NQ, CL, GC, MNQ, MES, MBT
+Correct futures prices via ETF proxy scaling.
+Strategies: ORB 8am/9:30am, Gap & Go, First Pullback, PDH/PDL, VWAP Bounce.
 """
 
 import streamlit as st
@@ -19,27 +20,12 @@ import io
 import math
 import random
 
-st.set_page_config(
-    page_title="NIGEL APEX NT",
-    layout="wide",
-    page_icon="N",
-    initial_sidebar_state="collapsed"
-)
+st.set_page_config(page_title="NIGEL APEX NT v5.5", layout="wide", page_icon="N", initial_sidebar_state="collapsed")
 
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700;900&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=JetBrains+Mono:wght@300;400;500;700&display=swap');
-:root{
-  --obsidian:#05040a;--obsidian2:#09080f;--obsidian3:#0d0c16;--obsidian4:#12101e;
-  --gold:#c9a84c;--gold-dim:rgba(201,168,76,0.12);
-  --emerald:#1aff8a;--emerald-dim:rgba(26,255,138,0.08);
-  --crimson:#ff2d55;--crimson-dim:rgba(255,45,85,0.08);
-  --sapphire:#00c4ff;--sapphire-dim:rgba(0,196,255,0.08);
-  --violet:#a855f7;--violet-dim:rgba(168,85,247,0.08);
-  --apex:#ff9500;--apex-dim:rgba(255,149,0,0.10);
-  --border:rgba(201,168,76,0.12);--border2:rgba(201,168,76,0.22);
-  --text:#d4cfc0;--text-dim:#5a5570;--text-muted:#3a3550;
-}
+:root{--obsidian:#05040a;--obsidian2:#09080f;--obsidian3:#0d0c16;--obsidian4:#12101e;--gold:#c9a84c;--gold-dim:rgba(201,168,76,0.12);--emerald:#1aff8a;--emerald-dim:rgba(26,255,138,0.08);--crimson:#ff2d55;--crimson-dim:rgba(255,45,85,0.08);--sapphire:#00c4ff;--violet:#a855f7;--violet-dim:rgba(168,85,247,0.08);--apex:#ff9500;--border:rgba(201,168,76,0.12);--border2:rgba(201,168,76,0.22);--text:#d4cfc0;--text-dim:#5a5570;--text-muted:#3a3550;}
 *,html,body{box-sizing:border-box;}
 html,body,[class*="css"]{font-family:'Cormorant Garamond',Georgia,serif!important;background:var(--obsidian)!important;color:var(--text)!important;}
 .block-container{padding:0 2rem 2rem!important;max-width:100%!important;}
@@ -68,6 +54,8 @@ html,body,[class*="css"]{font-family:'Cormorant Garamond',Georgia,serif!importan
 .badge-long{background:var(--emerald-dim);color:var(--emerald);border:1px solid rgba(26,255,138,.3);}
 .badge-short{background:var(--crimson-dim);color:var(--crimson);border:1px solid rgba(255,45,85,.3);}
 .badge-hold{background:var(--gold-dim);color:var(--gold);border:1px solid rgba(201,168,76,.3);}
+.badge-orb{background:rgba(168,85,247,0.10);color:var(--violet);border:1px solid rgba(168,85,247,.3);}
+.badge-gap{background:rgba(0,196,255,0.08);color:var(--sapphire);border:1px solid rgba(0,196,255,.25);}
 .badge-regime-trend{background:rgba(26,255,138,0.08);color:var(--emerald);border:1px solid rgba(26,255,138,.2);font-size:9px;padding:2px 7px;}
 .badge-regime-range{background:rgba(201,168,76,0.08);color:var(--gold);border:1px solid rgba(201,168,76,.2);font-size:9px;padding:2px 7px;}
 .badge-regime-vol{background:rgba(255,45,85,0.08);color:var(--crimson);border:1px solid rgba(255,45,85,.2);font-size:9px;padding:2px 7px;}
@@ -77,6 +65,7 @@ html,body,[class*="css"]{font-family:'Cormorant Garamond',Georgia,serif!importan
 .panel-gold{border-top:1px solid var(--gold);}
 .panel-em{border-top:1px solid var(--emerald);}
 .panel-cr{border-top:1px solid var(--crimson);}
+.panel-violet{border-top:1px solid var(--violet);}
 .stat-val{font-family:'JetBrains Mono',monospace;font-size:1.5rem;font-weight:500;line-height:1;}
 .stat-lbl{font-family:'Cinzel',serif;font-size:9px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--text-dim);margin-top:4px;}
 .nigel-note{border-radius:1px;padding:14px 18px;margin-bottom:10px;}
@@ -93,10 +82,8 @@ html,body,[class*="css"]{font-family:'Cormorant Garamond',Georgia,serif!importan
 .pos-long{background:rgba(26,255,138,0.05);border:1px solid rgba(26,255,138,0.2);}
 .pos-short{background:rgba(255,45,85,0.05);border:1px solid rgba(255,45,85,0.2);}
 .pos-flat{background:var(--obsidian3);border:1px solid var(--border);color:var(--text-dim);}
-.trade-pip-w{color:var(--emerald);font-size:11px;}
-.trade-pip-l{color:var(--crimson);font-size:11px;}
 .stTabs [data-baseweb="tab-list"]{background:var(--obsidian2)!important;border-radius:0!important;border-bottom:1px solid var(--border2)!important;gap:0!important;padding:0!important;}
-.stTabs [data-baseweb="tab"]{border-radius:0!important;color:var(--text-dim)!important;font-family:'Cinzel',serif!important;font-size:11px!important;font-weight:600!important;letter-spacing:.1em!important;padding:14px 22px!important;border-bottom:2px solid transparent!important;}
+.stTabs [data-baseweb="tab"]{border-radius:0!important;color:var(--text-dim)!important;font-family:'Cinzel',serif!important;font-size:11px!important;font-weight:600!important;letter-spacing:.1em!important;padding:14px 20px!important;border-bottom:2px solid transparent!important;}
 .stTabs [aria-selected="true"]{background:transparent!important;color:var(--gold)!important;border-bottom:2px solid var(--gold)!important;}
 section[data-testid="stSidebar"]{background:var(--obsidian2)!important;border-right:1px solid var(--border)!important;}
 hr{border:none!important;border-top:1px solid var(--border)!important;margin:18px 0!important;}
@@ -107,6 +94,9 @@ hr{border:none!important;border-top:1px solid var(--border)!important;margin:18p
 .divergence-bear{background:rgba(255,45,85,0.04);border:1px solid rgba(255,45,85,0.15);border-radius:1px;padding:5px 10px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--crimson);margin-top:3px;}
 .macd-bull{background:rgba(26,255,138,0.04);border:1px solid rgba(26,255,138,0.15);border-radius:1px;padding:5px 10px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--emerald);margin-top:3px;}
 .macd-bear{background:rgba(255,45,85,0.04);border:1px solid rgba(255,45,85,0.15);border-radius:1px;padding:5px 10px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--crimson);margin-top:3px;}
+.orb-bull{background:rgba(168,85,247,0.06);border:1px solid rgba(168,85,247,0.25);border-radius:1px;padding:5px 10px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--violet);margin-top:3px;}
+.orb-bear{background:rgba(168,85,247,0.06);border:1px solid rgba(168,85,247,0.25);border-radius:1px;padding:5px 10px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--violet);margin-top:3px;}
+.strategy-tag{display:inline-block;border-radius:1px;padding:2px 7px;font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin:2px;background:rgba(168,85,247,0.08);border:1px solid rgba(168,85,247,.2);color:var(--violet);}
 .pattern-tag{display:inline-block;border-radius:1px;padding:2px 7px;font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin:2px;background:rgba(201,168,76,0.08);border:1px solid rgba(201,168,76,.2);color:var(--gold);}
 ::-webkit-scrollbar{width:4px;height:4px;}
 ::-webkit-scrollbar-track{background:var(--obsidian);}
@@ -131,13 +121,13 @@ hr{border:none!important;border-top:1px solid var(--border)!important;margin:18p
 .council-long{background:linear-gradient(90deg,#1aff8a,#0c8a4a);height:100%;}
 .council-short{background:linear-gradient(90deg,#ff2d55,#a01838);height:100%;}
 .council-hold{background:linear-gradient(90deg,#5a5570,#3a3550);height:100%;}
-.dna-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed var(--border);font-family:'JetBrains Mono',monospace;font-size:11px;}
-.dna-key{color:var(--text-dim);}.dna-val{color:#fff;font-weight:500;}
-.adaptive-tag{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--violet);letter-spacing:.08em;background:var(--violet-dim);padding:2px 8px;border:1px solid rgba(168,85,247,.25);border-radius:1px;}
 .apex-progress-track{background:var(--obsidian4);height:8px;border-radius:4px;overflow:hidden;margin:5px 0 2px;}
 .apex-progress-fill{height:100%;border-radius:4px;}
-.proxy-tag{display:inline-block;background:rgba(255,149,0,0.10);border:1px solid rgba(255,149,0,0.3);border-radius:1px;padding:2px 8px;font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--apex);letter-spacing:.08em;}
-.target-box{background:rgba(26,255,138,0.06);border:1px solid rgba(26,255,138,0.2);border-radius:1px;padding:10px 14px;font-family:'JetBrains Mono',monospace;font-size:11px;margin-top:6px;}
+.strategy-card{background:var(--obsidian3);border:1px solid var(--border);border-radius:2px;padding:14px 16px;margin-bottom:8px;}
+.strategy-active-bull{border-left:3px solid var(--violet);}
+.strategy-active-bear{border-left:3px solid var(--crimson);}
+.strategy-inactive{border-left:3px solid var(--text-muted);opacity:0.5;}
+.price-level{display:inline-block;background:rgba(201,168,76,0.08);border:1px solid rgba(201,168,76,.2);border-radius:1px;padding:2px 8px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--gold);margin:2px;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -150,76 +140,81 @@ APEX_CONFIG = {
     "trailing_drawdown":   2_500.0,
     "profit_target":       3_000.0,
     "min_trading_days":        7,
-    "consistency_cap_pct":    40,
     "warn_at_pct":           0.70,
 }
 
 # ==============================================================
-# MARKETS - Real NinjaTrader/Apex Futures
+# MARKETS - Correct Apex NinjaTrader symbols
+# Prices shown to user = proxy_price * SCALE_FACTOR
 # ==============================================================
 MARKETS = {
     "NQ": {
-        "label":"E-mini Nasdaq",  "sub":"NQ Futures",     "stop":0.010,
-        "crypto":False, "color":"#00C4FF", "emoji":"N", "poly_ticker":"QQQ",
+        "label":"E-mini Nasdaq",  "sub":"NQ Futures",    "stop":0.010,
+        "crypto":False, "color":"#00C4FF", "poly_ticker":"QQQ",
+        "scale":38.0,
         "apex_proxy":"NQ",
         "apex_note":"$20/point - 50pt move = $1,000 - prime time 9:30-11am ET",
-        "contract_size":"$20 per point", "tick_size":"0.25 pts = $5.00",
-        "daily_target_pts":50, "daily_target_usd":1000,
+        "contract_size":"$20 per point", "tick_size":"0.25 pts = $5",
+        "daily_pts_target":50,
     },
     "CL": {
-        "label":"Crude Oil",      "sub":"CL Futures",     "stop":0.018,
-        "crypto":False, "color":"#FF6644", "emoji":"O", "poly_ticker":"USO",
+        "label":"Crude Oil",      "sub":"CL Futures",    "stop":0.015,
+        "crypto":False, "color":"#FF6644", "poly_ticker":"USO",
+        "scale":1.0,
         "apex_proxy":"CL",
         "apex_note":"$1,000 per $1 move - $1 move = $1,000 - Wed 10:30am inventory",
-        "contract_size":"$1,000 per $1.00", "tick_size":"$0.01 = $10.00",
-        "daily_target_pts":1.0, "daily_target_usd":1000,
+        "contract_size":"$1,000 per $1.00", "tick_size":"$0.01 = $10",
+        "daily_pts_target":1.0,
     },
     "GC": {
-        "label":"Gold",           "sub":"GC Futures",     "stop":0.008,
-        "crypto":False, "color":"#c9a84c", "emoji":"G", "poly_ticker":"GLD",
+        "label":"Gold",           "sub":"GC Futures",    "stop":0.008,
+        "crypto":False, "color":"#c9a84c", "poly_ticker":"GLD",
+        "scale":10.0,
         "apex_proxy":"GC",
-        "apex_note":"$100 per $1 move - $10 move = $1,000 - London and NY sessions",
-        "contract_size":"$100 per $1.00", "tick_size":"$0.10 = $10.00",
-        "daily_target_pts":10.0, "daily_target_usd":1000,
+        "apex_note":"$100 per $1 move - $10 move = $1,000 - London and NY open",
+        "contract_size":"$100 per $1.00", "tick_size":"$0.10 = $10",
+        "daily_pts_target":10.0,
     },
     "MNQ": {
-        "label":"Micro Nasdaq",   "sub":"MNQ Futures",    "stop":0.010,
-        "crypto":False, "color":"#627eea", "emoji":"M", "poly_ticker":"QQQ",
+        "label":"Micro Nasdaq",   "sub":"MNQ Futures",   "stop":0.010,
+        "crypto":False, "color":"#627eea", "poly_ticker":"QQQ",
+        "scale":38.0,
         "apex_proxy":"MNQ",
-        "apex_note":"$2/point - 1/10th of NQ - 500pt move = $1,000 - use to size into NQ",
+        "apex_note":"$2/point - 500pt move = $1,000 - scale into NQ signals",
         "contract_size":"$2 per point", "tick_size":"0.25 pts = $0.50",
-        "daily_target_pts":500, "daily_target_usd":1000,
+        "daily_pts_target":500,
     },
     "MES": {
-        "label":"Micro S&P 500",  "sub":"MES Futures",    "stop":0.008,
-        "crypto":False, "color":"#1AFF8A", "emoji":"S", "poly_ticker":"SPY",
+        "label":"Micro S&P 500",  "sub":"MES Futures",   "stop":0.008,
+        "crypto":False, "color":"#1AFF8A", "poly_ticker":"SPY",
+        "scale":10.0,
         "apex_proxy":"MES",
-        "apex_note":"$5/point - 1/10th of ES - 200pt move = $1,000 - less volatile than NQ",
+        "apex_note":"$5/point - 200pt move = $1,000 - less volatile than NQ",
         "contract_size":"$5 per point", "tick_size":"0.25 pts = $1.25",
-        "daily_target_pts":200, "daily_target_usd":1000,
+        "daily_pts_target":200,
     },
     "MBT": {
-        "label":"Micro Bitcoin",  "sub":"MBT Futures",    "stop":0.030,
-        "crypto":True,  "color":"#f7931a", "emoji":"B", "poly_ticker":None,
+        "label":"Micro Bitcoin",  "sub":"MBT Futures",   "stop":0.025,
+        "crypto":True,  "color":"#f7931a", "poly_ticker":None,
+        "scale":1.0,
         "apex_proxy":"MBT",
-        "apex_note":"0.1 BTC per contract - 3% BTC move on $85K = $255/contract",
+        "apex_note":"0.1 BTC/contract - 3% BTC move = ~$255 per contract",
         "contract_size":"0.1 BTC", "tick_size":"$5.00 per tick",
-        "daily_target_pts":3.0, "daily_target_usd":1000,
+        "daily_pts_target":3.0,
     },
 }
 
 CRYPTO_MAP = {
     "MBT": {"cg_id":"bitcoin", "binance":"BTCUSDT", "fallback":85000.0},
 }
-
 TICKERS = {"NQ":"QQQ", "CL":"USO", "GC":"GLD", "MNQ":"QQQ", "MES":"SPY"}
 
 SESSION_TIPS = {
-    "TOKYO":    "MBT active overnight. NQ and MES set overnight range - note key levels before NY open.",
-    "LONDON":   "GC most active 3-4am ET at London open. CL range sets early. Watch NQ for gap fill setup.",
-    "NEW YORK": "NQ and MES prime time 9:30-11am ET. CL volatile Wed 10:30am inventory. GC follows dollar.",
-    "OVERLAP":  "Peak volume. NQ trends hard on macro news. CL and GC making decisive moves.",
-    "OFF-HOURS":"MBT only. Do not trade NQ/CL/GC outside RTH without clear catalyst. Guard your $1K limit.",
+    "TOKYO":    "MBT trades 24hrs. NQ and MES overnight range sets key levels - note PDH/PDL before open.",
+    "LONDON":   "GC most active 3-4am ET. CL begins its session. Watch for 8am ORB breakout on all contracts.",
+    "NEW YORK": "9:30am ORB prime time. NQ and MES best 9:30-11am. CL peaks on Wed 10:30am inventory.",
+    "OVERLAP":  "Peak volume. Best ORB continuation setups. First pullback entries after opening range breaks.",
+    "OFF-HOURS":"MBT only. Review your PDH/PDL levels for tomorrow. Do not trade NQ/CL/GC outside RTH.",
 }
 
 STARTING_BALANCE = 50_000.0
@@ -236,7 +231,7 @@ SCORE_MAP = {
 # PERSISTENCE
 # ==============================================================
 PERSIST_PATH = pathlib.Path("nigel_state.json")
-STATE_VERSION = "5.4"
+STATE_VERSION = "5.5"
 PERSIST_KEYS = [
     "polygon_key","claude_key","rule_set","notes","signal_feed","ai_feed",
     "whisper_feed","diag_history","bt_cache","traders","last_ai_call",
@@ -246,6 +241,10 @@ PERSIST_KEYS = [
     "apex_trading_days","apex_locked","apex_lock_reason","apex_daily_history",
 ]
 REQUIRED_POS_FIELDS = {"market","dir","entry","stop","tp","units","risk_amt","time","conf"}
+
+
+def _esc(text):
+    return str(text).replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
 
 
 def _is_valid_position(pos):
@@ -316,8 +315,7 @@ def state_save():
                     except Exception: tr_copy["open_pos"] = None; safe_t.append(tr_copy)
                 payload[k] = safe_t
             else:
-                json.dumps(v, default=_serialize)
-                payload[k] = v
+                json.dumps(v, default=_serialize); payload[k] = v
         except Exception: pass
     try:
         tmp = PERSIST_PATH.with_suffix(".tmp")
@@ -347,17 +345,46 @@ if "__nigel_restored__" not in st.session_state:
     for k in PERSIST_KEYS:
         if k in _disk and k not in st.session_state: st.session_state[k] = _disk[k]
     st.session_state["__nigel_restored__"] = True
-    st.session_state["__restore_ts__"] = datetime.now().strftime("%H:%M:%S") # ==============================================================
+    st.session_state["__restore_ts__"] = datetime.now().strftime("%H:%M:%S")# ==============================================================
+# PRICE DISPLAY HELPERS - CORRECT FUTURES PRICES
+# ==============================================================
+def scale_price(mk, proxy_price):
+    """Convert ETF proxy price to approximate futures price for display."""
+    scale = MARKETS.get(mk, {}).get("scale", 1.0)
+    return proxy_price * scale
+
+
+def fmt_futures(mk, proxy_price):
+    """Format as correct futures price for display."""
+    fp = scale_price(mk, proxy_price)
+    if fp >= 10000: return f"{fp:,.0f}"
+    elif fp >= 100: return f"{fp:,.2f}"
+    else: return f"{fp:,.2f}"
+
+
+def fmt_futures_dollar(mk, proxy_price):
+    """Format with dollar sign."""
+    return f"${fmt_futures(mk, proxy_price)}"
+
+
+def proxy_to_futures_stop_target(mk, proxy_stop, proxy_target):
+    """Convert proxy SL/TP to futures price strings."""
+    scale = MARKETS.get(mk, {}).get("scale", 1.0)
+    sl = proxy_stop * scale if proxy_stop else None
+    tp = proxy_target * scale if proxy_target else None
+    return sl, tp
+
+
+# ==============================================================
 # TRADER FACTORY
 # ==============================================================
 def _generate_trade_history(win_rate, rr, risk_pct, n_trades, starting_bal, seed=42):
     rng = random.Random(seed)
     bal = starting_bal; peak = starting_bal; trades = []; equity = [starting_bal]
-    base_prices = {"NQ":18500,"CL":75,"GC":2350,"MNQ":18500,"MES":5200,"MBT":85000}
+    base_prices = {"NQ":0.5,"CL":0.72,"GC":0.233,"MNQ":0.5,"MES":0.525,"MBT":85000}
     markets_pool = list(base_prices.keys())
     for i in range(n_trades):
-        mk = rng.choice(markets_pool)
-        direction = rng.choice(["long","short"])
+        mk = rng.choice(markets_pool); direction = rng.choice(["long","short"])
         risk_amt = bal * risk_pct
         entry = base_prices[mk] * (1 + rng.uniform(-0.04, 0.04))
         stop_dist = entry * MARKETS[mk]["stop"]
@@ -370,8 +397,8 @@ def _generate_trade_history(win_rate, rr, risk_pct, n_trades, starting_bal, seed
         bal = max(0, bal+pnl); peak = max(peak, bal); equity.append(round(bal,2))
         hours_ago = (n_trades-i) * rng.uniform(2,18)
         t = (datetime.now()-timedelta(hours=hours_ago)).strftime("%H:%M:%S")
-        trades.append({"market":mk,"dir":direction,"entry":round(entry,2),
-                       "exit":round(exit_p,2),"pnl":round(pnl,2),"result":result,
+        trades.append({"market":mk,"dir":direction,"entry":round(entry,4),
+                       "exit":round(exit_p,4),"pnl":round(pnl,2),"result":result,
                        "reason":reason,"time":t,"conf":rng.randint(55,90)})
     return trades, equity, round(bal,2), round(peak,2)
 
@@ -395,23 +422,20 @@ def _make_trader(name, emoji, style, risk_pct, rr, min_conf, wait_strong, philos
 
 
 DEFAULT_TRADERS = [
-    _make_trader("CONSERVATEUR","C","Precision entries only - waits for the perfect storm",
+    _make_trader("CONSERVATEUR","C","Precision entries - waits for perfect ORB confluence",
                  0.005,2.5,65,True,"I trade once and trade right.",18,63,11),
-    _make_trader("MOMENTUM","M","Rides breakouts and trend continuation aggressively",
-                 0.015,2.0,52,False,"The trend is my only edge.",42,54,22),
-    _make_trader("CONTRARIAN","X","Fades extremes - buys oversold sells overbought",
+    _make_trader("MOMENTUM","M","Rides ORB breakouts and trend continuation",
+                 0.015,2.0,52,False,"The trend is my edge.",42,54,22),
+    _make_trader("CONTRARIAN","X","Fades gap extremes - buys oversold sells overbought",
                  0.020,1.8,45,False,"When others panic I act.",35,50,33),
-    _make_trader("SCALPER","S","High-frequency micro-positions - small wins tight stops",
+    _make_trader("SCALPER","S","High-frequency micro-positions small wins tight stops",
                  0.008,1.4,50,False,"A hundred small edges compound into one large fortune.",87,61,44),
-    _make_trader("MACRO","R","Slow macro thesis trades - holds positions over sessions",
+    _make_trader("MACRO","R","Session-based trades holds over RTH",
                  0.015,3.5,60,True,"I don't trade noise. I trade the story beneath the price.",12,67,55),
-    _make_trader("ALGOBOT","A","Pure systematic - no discretion rules-only execution",
+    _make_trader("ALGOBOT","A","Pure systematic - ORB rules only no discretion",
                  0.010,2.2,55,False,"Emotion is a bug. My only input is the signal.",61,57,66),
 ]
 
-# ==============================================================
-# DEFAULTS
-# ==============================================================
 DEFAULTS = {
     "polygon_key":"","claude_key":"","notes":[],"signal_feed":[],
     "last_ai_call":0.0,"last_whisper_call":0.0,"rule_set":[],"bt_cache":{},
@@ -428,9 +452,6 @@ for k, v in DEFAULTS.items():
     if k not in st.session_state: st.session_state[k] = v
 st.session_state["traders"] = [_sanitize_trader(tr) for tr in st.session_state["traders"]]
 
-# ==============================================================
-# API GATE
-# ==============================================================
 if not st.session_state["polygon_key"]:
     st.markdown("""
     <div style='min-height:100vh;display:flex;flex-direction:column;align-items:center;
@@ -438,9 +459,9 @@ if not st.session_state["polygon_key"]:
     <div style='font-family:Cinzel,serif;font-size:3.5rem;font-weight:900;letter-spacing:.4em;
     color:#fff;margin-bottom:6px;'>NIGEL</div>
     <div style='font-family:Cormorant Garamond,serif;font-style:italic;color:#5a5570;
-    font-size:1rem;letter-spacing:.2em;margin-bottom:4px;'>Private Trading Intelligence v5.4</div>
+    font-size:1rem;letter-spacing:.2em;margin-bottom:4px;'>Private Trading Intelligence v5.5</div>
     <div style='font-family:JetBrains Mono,monospace;font-size:10px;color:rgba(255,149,0,0.8);
-    letter-spacing:.15em;margin-bottom:4px;'>APEX NINJATRADER EDITION</div>
+    letter-spacing:.15em;margin-bottom:4px;'>APEX NINJATRADER - ORB EDITION</div>
     <div style='font-family:JetBrains Mono,monospace;font-size:10px;color:#5a5570;
     letter-spacing:.1em;margin-bottom:40px;'>NQ - CL - GC - MNQ - MES - MBT</div>
     <div style='background:#09080f;border:1px solid rgba(201,168,76,0.2);border-radius:2px;
@@ -453,12 +474,10 @@ if not st.session_state["polygon_key"]:
         ck = st.text_input("Claude API Key (AI features)", type="password", placeholder="sk-ant-...")
         if st.form_submit_button("ENTER NIGEL", type="primary"):
             if pk:
-                st.session_state["polygon_key"] = pk
-                st.session_state["claude_key"] = ck
+                st.session_state["polygon_key"] = pk; st.session_state["claude_key"] = ck
                 state_save(); st.rerun()
             else: st.error("Polygon key required.")
-    st.markdown("</div></div>", unsafe_allow_html=True)
-    st.stop()
+    st.markdown("</div></div>", unsafe_allow_html=True); st.stop()
 
 POLY = st.session_state["polygon_key"]
 CLKEY = st.session_state["claude_key"]
@@ -498,12 +517,19 @@ def fetch_polygon_data(ticker, key, days=60):
                f"{frm}/{to}?adjusted=true&sort=asc&limit={days}&apiKey={key}")
         d = requests.get(url, timeout=15).json()
         if "results" not in d or len(d["results"]) < 5: raise ValueError("no data")
-        closes = [r["c"] for r in d["results"]]
-        return {"closes":closes,"price":closes[-1],"chg":(closes[-1]-closes[-2])/closes[-2]*100,"ok":True}
+        results = d["results"]
+        closes = [r["c"] for r in results]
+        opens  = [r["o"] for r in results]
+        highs  = [r["h"] for r in results]
+        lows   = [r["l"] for r in results]
+        vols   = [r.get("v",0) for r in results]
+        return {"closes":closes,"opens":opens,"highs":highs,"lows":lows,"vols":vols,
+                "price":closes[-1],"chg":(closes[-1]-closes[-2])/closes[-2]*100,"ok":True}
     except Exception:
-        base = {"QQQ":490,"USO":70,"GLD":235,"SPY":520}
-        p = base.get(ticker, 100)
-        return {"closes":[p]*45,"price":p,"chg":0.2,"ok":False}
+        base = {"QQQ":0.5,"USO":0.72,"GLD":0.233,"SPY":0.525}
+        p = base.get(ticker, 0.5)
+        return {"closes":[p]*45,"opens":[p]*45,"highs":[p*1.005]*45,
+                "lows":[p*0.995]*45,"vols":[1000000]*45,"price":p,"chg":0.2,"ok":False}
 
 
 @st.cache_data(ttl=300)
@@ -522,26 +548,24 @@ def fetch_order_flow(sym, limit=500):
         return {"ok":False,"flow_ratio":0.5,"flow_score":0,"buy_vol":0,
                 "sell_vol":0,"momentum":False,"verdict":"N/A","price_chg_pct":0}
     try:
-        url = f"https://api.binance.com/api/v3/aggTrades?symbol={bsym}&limit={limit}"
-        data = requests.get(url, timeout=8).json()
+        data = requests.get(f"https://api.binance.com/api/v3/aggTrades?symbol={bsym}&limit={limit}", timeout=8).json()
         if not isinstance(data, list) or not data: raise ValueError("empty")
-        buy_vol = 0.0; sell_vol = 0.0
-        first_p = float(data[0]["p"]); last_p = float(data[-1]["p"])
+        buy_vol=0.0; sell_vol=0.0
+        first_p=float(data[0]["p"]); last_p=float(data[-1]["p"])
         for t in data:
-            q = float(t["q"])
-            if t["m"]: sell_vol += q
-            else: buy_vol += q
-        total = buy_vol + sell_vol
-        if total <= 0: raise ValueError("zero")
-        flow_ratio = buy_vol / total
-        flow_score = int((flow_ratio - 0.5) * 200)
-        price_chg = (last_p - first_p) / first_p * 100
-        momentum = (flow_score > 10 and price_chg > 0) or (flow_score < -10 and price_chg < 0)
-        if flow_score > 25: verdict = "STRONG BUY FLOW"
-        elif flow_score > 10: verdict = "BUY FLOW"
-        elif flow_score < -25: verdict = "STRONG SELL FLOW"
-        elif flow_score < -10: verdict = "SELL FLOW"
-        else: verdict = "BALANCED"
+            q=float(t["q"])
+            if t["m"]: sell_vol+=q
+            else: buy_vol+=q
+        total=buy_vol+sell_vol
+        if total<=0: raise ValueError("zero")
+        flow_ratio=buy_vol/total; flow_score=int((flow_ratio-0.5)*200)
+        price_chg=(last_p-first_p)/first_p*100
+        momentum=(flow_score>10 and price_chg>0) or (flow_score<-10 and price_chg<0)
+        if flow_score>25: verdict="STRONG BUY FLOW"
+        elif flow_score>10: verdict="BUY FLOW"
+        elif flow_score<-25: verdict="STRONG SELL FLOW"
+        elif flow_score<-10: verdict="SELL FLOW"
+        else: verdict="BALANCED"
         return {"ok":True,"flow_ratio":round(flow_ratio,3),"flow_score":flow_score,
                 "buy_vol":round(buy_vol,2),"sell_vol":round(sell_vol,2),
                 "momentum":momentum,"verdict":verdict,"price_chg_pct":round(price_chg,3)}
@@ -555,88 +579,78 @@ def fetch_order_flow(sym, limit=500):
 # ==============================================================
 def ema_series(arr, n):
     if not arr or len(arr) < 2: return list(arr) if arr else []
-    k = 2/(n+1); out = [arr[0]]
-    for v in arr[1:]: out.append(v*k + out[-1]*(1-k))
+    k=2/(n+1); out=[arr[0]]
+    for v in arr[1:]: out.append(v*k+out[-1]*(1-k))
     return out
 
 
 def rsi_full(closes, n=14):
-    if len(closes) < n+2: return [50.0]*len(closes)
-    deltas = [closes[i]-closes[i-1] for i in range(1,len(closes))]
-    gains = [max(d,0) for d in deltas]; losses = [abs(min(d,0)) for d in deltas]
-    avg_g = sum(gains[:n])/n; avg_l = sum(losses[:n])/n
-    rsi_vals = [None]*n
-    rsi_vals.append(100 - 100/(1+avg_g/max(avg_l,1e-9)))
+    if len(closes)<n+2: return [50.0]*len(closes)
+    deltas=[closes[i]-closes[i-1] for i in range(1,len(closes))]
+    gains=[max(d,0) for d in deltas]; losses=[abs(min(d,0)) for d in deltas]
+    avg_g=sum(gains[:n])/n; avg_l=sum(losses[:n])/n
+    rsi_vals=[None]*n; rsi_vals.append(100-100/(1+avg_g/max(avg_l,1e-9)))
     for i in range(n,len(deltas)):
-        avg_g = (avg_g*(n-1)+gains[i])/n; avg_l = (avg_l*(n-1)+losses[i])/n
-        rsi_vals.append(100 - 100/(1+avg_g/max(avg_l,1e-9)))
-    return [50.0] + rsi_vals
+        avg_g=(avg_g*(n-1)+gains[i])/n; avg_l=(avg_l*(n-1)+losses[i])/n
+        rsi_vals.append(100-100/(1+avg_g/max(avg_l,1e-9)))
+    return [50.0]+rsi_vals
 
 
 def atr_series(closes, highs, lows, n=14):
-    tr = []
+    tr=[]
     for i in range(1,len(closes)):
-        h = highs[i] if highs else closes[i]*1.005
-        l = lows[i] if lows else closes[i]*0.995
-        tr.append(max(h-l, abs(h-closes[i-1]), abs(l-closes[i-1])))
-    if len(tr) < n: return [None]*len(closes)
-    atr = [sum(tr[:n])/n]
+        h=highs[i] if highs else closes[i]*1.005; l=lows[i] if lows else closes[i]*0.995
+        tr.append(max(h-l,abs(h-closes[i-1]),abs(l-closes[i-1])))
+    if len(tr)<n: return [None]*len(closes)
+    atr=[sum(tr[:n])/n]
     for v in tr[n:]: atr.append((atr[-1]*(n-1)+v)/n)
-    return [None]*n + atr
+    return [None]*n+atr
 
 
 def bb_bands(closes, n=20, k=2.0):
     mid=[]; upper=[]; lower=[]; pct=[]
     for i in range(n-1,len(closes)):
-        window = closes[i-n+1:i+1]; m = sum(window)/n
-        sd = (sum((v-m)**2 for v in window)/n)**0.5
+        window=closes[i-n+1:i+1]; m=sum(window)/n
+        sd=(sum((v-m)**2 for v in window)/n)**0.5
         mid.append(m); upper.append(m+k*sd); lower.append(m-k*sd)
         pct.append((closes[i]-lower[-1])/(upper[-1]-lower[-1]+1e-9))
-    pad = [None]*(n-1)
-    return pad+mid, pad+upper, pad+lower, pad+pct
+    pad=[None]*(n-1); return pad+mid,pad+upper,pad+lower,pad+pct
 
 
 def detect_regime(closes, highs=None, lows=None):
-    if len(closes) < 25:
-        return {"regime":"UNKNOWN","adx_lite":0,"bb_width_pct":0,"atr_pct_rank":50}
-    h = highs or [c*1.005 for c in closes]
-    l = lows or [c*0.995 for c in closes]
-    n = 14; dm_plus=[]; dm_minus=[]
+    if len(closes)<25: return {"regime":"UNKNOWN","adx_lite":0,"bb_width_pct":0,"atr_pct_rank":50}
+    h=highs or [c*1.005 for c in closes]; l=lows or [c*0.995 for c in closes]; n=14
+    dm_plus=[]; dm_minus=[]
     for i in range(1,len(closes)):
-        up = h[i]-h[i-1]; dn = l[i-1]-l[i]
-        dm_plus.append(max(up,0) if up>dn else 0)
-        dm_minus.append(max(dn,0) if dn>up else 0)
-    atr_vals = atr_series(closes,h,l,n)
-    atr_v = [v for v in atr_vals if v is not None]
+        up=h[i]-h[i-1]; dn=l[i-1]-l[i]
+        dm_plus.append(max(up,0) if up>dn else 0); dm_minus.append(max(dn,0) if dn>up else 0)
+    atr_vals=atr_series(closes,h,l,n); atr_v=[v for v in atr_vals if v is not None]
     if not atr_v: return {"regime":"UNKNOWN","adx_lite":0,"bb_width_pct":0,"atr_pct_rank":50}
-    di_plus = 100*sum(dm_plus[-n:])/(sum(atr_v[-n:])+1e-9)
-    di_minus = 100*sum(dm_minus[-n:])/(sum(atr_v[-n:])+1e-9)
-    dx = 100*abs(di_plus-di_minus)/(di_plus+di_minus+1e-9)
-    adx_lite = round(dx,1)
-    bb_m,bb_u,bb_l,_ = bb_bands(closes)
-    bb_w = [(u-l_)/m*100 for u,l_,m in zip(bb_u,bb_l,bb_m) if u and l_ and m]
-    bb_width_pct = round(bb_w[-1],2) if bb_w else 0
-    atr_pct = atr_v[-1]/closes[-1]*100
-    atr_hist = [v/closes[max(0,i-1)]*100 for i,v in enumerate(atr_v)]
-    atr_pct_rank = round(100*sum(1 for v in atr_hist if v<=atr_pct)/len(atr_hist),0) if atr_hist else 50
-    if atr_pct_rank > 80: regime = "VOLATILE"
-    elif adx_lite > 25: regime = "TRENDING"
-    else: regime = "RANGING"
+    di_plus=100*sum(dm_plus[-n:])/(sum(atr_v[-n:])+1e-9)
+    di_minus=100*sum(dm_minus[-n:])/(sum(atr_v[-n:])+1e-9)
+    dx=100*abs(di_plus-di_minus)/(di_plus+di_minus+1e-9); adx_lite=round(dx,1)
+    bb_m,bb_u,bb_l,_=bb_bands(closes)
+    bb_w=[(u-l_)/m*100 for u,l_,m in zip(bb_u,bb_l,bb_m) if u and l_ and m]
+    bb_width_pct=round(bb_w[-1],2) if bb_w else 0
+    atr_pct=atr_v[-1]/closes[-1]*100
+    atr_hist=[v/closes[max(0,i-1)]*100 for i,v in enumerate(atr_v)]
+    atr_pct_rank=round(100*sum(1 for v in atr_hist if v<=atr_pct)/len(atr_hist),0) if atr_hist else 50
+    if atr_pct_rank>80: regime="VOLATILE"
+    elif adx_lite>25: regime="TRENDING"
+    else: regime="RANGING"
     return {"regime":regime,"adx_lite":adx_lite,"bb_width_pct":bb_width_pct,"atr_pct_rank":int(atr_pct_rank)}
 
 
 def detect_divergence(closes, rsi_vals, lookback=10):
-    result = {"bull_div":False,"bear_div":False,"desc":"","macd_bull":False,"macd_bear":False,"macd_desc":""}
+    result={"bull_div":False,"bear_div":False,"desc":"","macd_bull":False,"macd_bear":False,"macd_desc":""}
     if len(closes)<lookback+2 or len(rsi_vals)<lookback+2: return result
-    c_slice = closes[-lookback:]
-    r_slice = [v for v in rsi_vals[-lookback:] if v is not None]
-    if len(r_slice) >= lookback:
-        pli = c_slice.index(min(c_slice)); phi = c_slice.index(max(c_slice))
-        prev_c = closes[-(lookback*2):-lookback]
-        prev_r = [v for v in rsi_vals[-(lookback*2):-lookback] if v is not None]
+    c_slice=closes[-lookback:]; r_slice=[v for v in rsi_vals[-lookback:] if v is not None]
+    if len(r_slice)>=lookback:
+        pli=c_slice.index(min(c_slice)); phi=c_slice.index(max(c_slice))
+        prev_c=closes[-(lookback*2):-lookback]; prev_r=[v for v in rsi_vals[-(lookback*2):-lookback] if v is not None]
         if prev_c and prev_r:
             try:
-                prl = prev_r[prev_c.index(min(prev_c))]; prh = prev_r[prev_c.index(max(prev_c))]
+                prl=prev_r[prev_c.index(min(prev_c))]; prh=prev_r[prev_c.index(max(prev_c))]
                 if min(c_slice)<min(prev_c) and r_slice[pli]>prl+3:
                     result["bull_div"]=True; result["desc"]="BULL DIV - Price lower low RSI did not"
                 elif max(c_slice)>max(prev_c) and r_slice[phi]<prh-3:
@@ -658,29 +672,28 @@ def detect_divergence(closes, rsi_vals, lookback=10):
 
 
 def scan_patterns(closes, highs=None, lows=None):
-    patterns = []
-    if len(closes) < 10: return patterns
-    h = highs or [c*1.005 for c in closes]
-    l = lows or [c*0.995 for c in closes]; c = closes
+    patterns=[]
+    if len(closes)<10: return patterns
+    h=highs or [c*1.005 for c in closes]; l=lows or [c*0.995 for c in closes]; c=closes
     if h[-1]>h[-3]>h[-5] and l[-1]>l[-3]>l[-5]: patterns.append("HH/HL STRUCTURE")
     if h[-1]<h[-3]<h[-5] and l[-1]<l[-3]<l[-5]: patterns.append("LH/LL STRUCTURE")
     if h[-1]<h[-2] and l[-1]>l[-2]: patterns.append("INSIDE BAR")
     if h[-1]>h[-2] and l[-1]<l[-2]: patterns.append("OUTSIDE BAR")
     if c[-3]<c[-4] and c[-2]<c[-3] and c[-1]>c[-2] and c[-1]>c[-3]: patterns.append("3-BAR BULL REV")
     if c[-3]>c[-4] and c[-2]>c[-3] and c[-1]<c[-2] and c[-1]<c[-3]: patterns.append("3-BAR BEAR REV")
-    if (max(h[-4:])-min(l[-4:]))/c[-1]*100 < 1.5: patterns.append("TIGHT COIL")
+    if (max(h[-4:])-min(l[-4:]))/c[-1]*100<1.5: patterns.append("TIGHT COIL")
     if len(c)>5:
-        avg_body = np.mean([abs(c[i]-c[i-1]) for i in range(-5,-1)])
+        avg_body=np.mean([abs(c[i]-c[i-1]) for i in range(-5,-1)])
         if abs(c[-1]-c[-2])>2*avg_body and avg_body>0: patterns.append("WIDE RANGE BAR")
     return patterns
 
 
 def smart_money_clock():
-    utc = datetime.now(ZoneInfo("UTC")); h = utc.hour + utc.minute/60
-    score = 25
+    utc=datetime.now(ZoneInfo("UTC")); h=utc.hour+utc.minute/60
+    score=25
     for (h1,h2),s in SCORE_MAP.items():
         if h1<=h<h2: score=s; break
-    dow = utc.weekday()
+    dow=utc.weekday()
     if dow==4 and h>16: score=int(score*0.7)
     if dow in (5,6): score=int(score*0.4)
     sessions=[]
@@ -688,38 +701,18 @@ def smart_money_clock():
     if 8<=h<17: sessions.append("London")
     if 13<=h<22: sessions.append("New York")
     if 13<=h<17: sessions.append("Overlap")
-    label = "PEAK" if score>=85 else "ACTIVE" if score>=60 else "MODERATE" if score>=40 else "LOW"
-    return score, label, sessions
-
-
-def risk_of_ruin(win_rate_pct, rr_ratio, risk_pct_per_trade, ruin_threshold=0.5):
-    w = win_rate_pct/100; l = 1-w
-    if rr_ratio<=0 or w<=0:
-        return {"kelly":0,"ror":100,"edge":0,"half_kelly":0,"using_pct":0,"vs_half_kelly":"OVER"}
-    edge = w*rr_ratio - l
-    full_kelly = edge/rr_ratio if edge>0 else 0
-    half_kelly = full_kelly/2
-    if edge<=0: ror=100.0
-    else:
-        q = l/(w*rr_ratio)
-        if q>=1: ror=100.0
-        else:
-            n_units = math.log(ruin_threshold)/math.log(q) if q>0 else 999
-            ror = round(min(100,max(0,(q**n_units)*100)),1)
-    return {"kelly":round(full_kelly*100,2),"half_kelly":round(half_kelly*100,2),
-            "ror":round(ror,1),"edge":round(edge*100,2),
-            "using_pct":round(risk_pct_per_trade*100,2),
-            "vs_half_kelly":"OVER" if risk_pct_per_trade*100>half_kelly*100 else "UNDER"}
+    label="PEAK" if score>=85 else "ACTIVE" if score>=60 else "MODERATE" if score>=40 else "LOW"
+    return score,label,sessions
 
 
 def volatility_regime(closes, window=20):
     if len(closes)<window+5: return {"rv":0,"rv_pct_rank":50,"forecast":"STABLE","rv_5d":0}
-    rets = [math.log(closes[i]/closes[i-1]) for i in range(1,len(closes))]
-    rv_series = []
+    rets=[math.log(closes[i]/closes[i-1]) for i in range(1,len(closes))]
+    rv_series=[]
     for i in range(window,len(rets)+1):
         rv_series.append(np.std(rets[i-window:i])*math.sqrt(252)*100)
-    rv_now = rv_series[-1]; rv_5d = np.mean([r**2 for r in rets[-5:]])**0.5*math.sqrt(252)*100
-    rank = sum(1 for v in rv_series if v<=rv_now)/len(rv_series)*100
+    rv_now=rv_series[-1]; rv_5d=np.mean([r**2 for r in rets[-5:]])**0.5*math.sqrt(252)*100
+    rank=sum(1 for v in rv_series if v<=rv_now)/len(rv_series)*100
     if rv_now>rv_series[-2]*1.15: forecast="EXPANDING"
     elif rv_now<rv_series[-2]*0.88: forecast="CONTRACTING"
     else: forecast="STABLE"
@@ -729,21 +722,17 @@ def volatility_regime(closes, window=20):
 def compute_liquidity_zones(closes, n_bins=20):
     if not closes or len(closes)<30:
         return {"hvn":[],"lvn":[],"poc":None,"liq_score":0,"zone_type":"NEUTRAL","dist_to_poc_pct":0,"current_zone_density":0}
-    arr = np.array(closes); p_min,p_max = float(arr.min()),float(arr.max())
+    arr=np.array(closes); p_min,p_max=float(arr.min()),float(arr.max())
     if p_max<=p_min:
         return {"hvn":[],"lvn":[],"poc":None,"liq_score":0,"zone_type":"NEUTRAL","dist_to_poc_pct":0,"current_zone_density":0}
-    bin_edges = np.linspace(p_min,p_max,n_bins+1)
-    counts,_ = np.histogram(arr,bins=bin_edges)
-    bin_centers = (bin_edges[:-1]+bin_edges[1:])/2
-    max_count = counts.max() if counts.max()>0 else 1
-    density = counts/max_count
-    hvn = [round(float(bin_centers[i]),2) for i in np.where(density>=0.70)[0]]
-    lvn = [round(float(bin_centers[i]),2) for i in np.where((density<=0.25)&(counts>0))[0]]
-    poc_idx = int(counts.argmax()); poc = round(float(bin_centers[poc_idx]),2)
-    cur = float(closes[-1])
-    cur_bin = min(n_bins-1,max(0,int((cur-p_min)/(p_max-p_min)*n_bins)))
-    cur_density = float(density[cur_bin])
-    dist_to_poc = (cur-poc)/poc*100 if poc else 0
+    bin_edges=np.linspace(p_min,p_max,n_bins+1); counts,_=np.histogram(arr,bins=bin_edges)
+    bin_centers=(bin_edges[:-1]+bin_edges[1:])/2
+    max_count=counts.max() if counts.max()>0 else 1; density=counts/max_count
+    hvn=[round(float(bin_centers[i]),4) for i in np.where(density>=0.70)[0]]
+    lvn=[round(float(bin_centers[i]),4) for i in np.where((density<=0.25)&(counts>0))[0]]
+    poc_idx=int(counts.argmax()); poc=round(float(bin_centers[poc_idx]),4)
+    cur=float(closes[-1]); cur_bin=min(n_bins-1,max(0,int((cur-p_min)/(p_max-p_min)*n_bins)))
+    cur_density=float(density[cur_bin]); dist_to_poc=(cur-poc)/poc*100 if poc else 0
     liq_score=0; zone_type="NEUTRAL"
     if cur_density<=0.25: zone_type="LVN_BREAKOUT"; liq_score=18
     elif cur_density>=0.70: zone_type="HVN_CHOP"; liq_score=5
@@ -755,113 +744,181 @@ def compute_liquidity_zones(closes, n_bins=20):
             "dist_to_poc_pct":round(dist_to_poc,2),"current_zone_density":round(cur_density,3)}
 
 
-def ks_regime_shift(closes, recent_n=10, baseline_n=30):
-    if not closes or len(closes)<recent_n+baseline_n+2:
-        return {"ks_stat":0,"p_value":1.0,"regime_stable":True,"verdict":"INSUFFICIENT_DATA","trust_fitness":True}
-    rets = np.diff(np.log(np.array(closes)))
-    if len(rets)<recent_n+baseline_n:
-        return {"ks_stat":0,"p_value":1.0,"regime_stable":True,"verdict":"INSUFFICIENT_DATA","trust_fitness":True}
-    recent = rets[-recent_n:]; baseline = rets[-(recent_n+baseline_n):-recent_n]
-    combined = np.sort(np.concatenate([recent,baseline]))
-    cdf_r = np.searchsorted(np.sort(recent),combined,'right')/len(recent)
-    cdf_b = np.searchsorted(np.sort(baseline),combined,'right')/len(baseline)
-    ks_stat = float(np.max(np.abs(cdf_r-cdf_b)))
-    n1,n2 = len(recent),len(baseline); en = math.sqrt(n1*n2/(n1+n2))
-    lam = (en+0.12+0.11/en)*ks_stat
-    p_value = 0.0
-    for j in range(1,101):
-        term = ((-1)**(j-1))*math.exp(-2*lam*lam*j*j); p_value += term
-        if abs(term)<1e-10: break
-    p_value = max(0.0,min(1.0,2*p_value))
-    if p_value>0.10: verdict="STABLE"; stable=True; trust=True
-    elif p_value>0.01: verdict="SHIFTING"; stable=False; trust=False
-    else: verdict="BROKEN"; stable=False; trust=False
-    return {"ks_stat":round(ks_stat,3),"p_value":round(p_value,4),"regime_stable":stable,"verdict":verdict,"trust_fitness":trust} # ==============================================================
-# SMART MONEY FOOTPRINTS
 # ==============================================================
-def find_rejection_blocks(closes, highs=None, lows=None, lookback=20):
-    if not closes or len(closes)<5: return {"blocks":[],"active":None,"rb_score":0}
-    h = highs or [c*1.005 for c in closes]
-    l = lows or [c*0.995 for c in closes]
-    blocks=[]
-    for i in range(max(1,len(closes)-lookback), len(closes)):
-        op=closes[i-1]; cl=closes[i]; hi=h[i]; lo=l[i]; rng=hi-lo
-        if rng<=0: continue
-        uw=hi-max(op,cl); lw=min(op,cl)-lo; body=abs(cl-op)
-        if lw/rng>0.55 and (cl-lo)/rng>0.66 and body/rng<0.4:
-            strength=int(min(100,(lw/rng)*100+(cl-lo)/rng*30))
-            blocks.append({"bar":i,"type":"BULL_RB","price":round(lo,2),"strength":strength,"age":len(closes)-1-i})
-        if uw/rng>0.55 and (hi-cl)/rng>0.66 and body/rng<0.4:
-            strength=int(min(100,(uw/rng)*100+(hi-cl)/rng*30))
-            blocks.append({"bar":i,"type":"BEAR_RB","price":round(hi,2),"strength":strength,"age":len(closes)-1-i})
-    active=None
-    for b in reversed(blocks):
-        if b["age"]<=5: active=b; break
-    rb_score = max(0,15-active["age"]*2) if active else 0
-    return {"blocks":blocks[-8:],"active":active,"rb_score":rb_score}
-
-
-def find_liquidity_sweeps(closes, highs=None, lows=None, lookback=15):
-    if not closes or len(closes)<lookback+2: return {"sweeps":[],"active":None,"sweep_score":0}
-    h = highs or [c*1.005 for c in closes]
-    l = lows or [c*0.995 for c in closes]
-    sweeps=[]
-    for i in range(max(5,len(closes)-8), len(closes)):
-        ph=h[max(0,i-lookback):i]; pl=l[max(0,i-lookback):i]
-        if not ph or not pl: continue
-        swing_hi=max(ph); swing_lo=min(pl)
-        if l[i]<swing_lo and closes[i]>swing_lo:
-            sweeps.append({"bar":i,"type":"BULL_SWEEP","swept_level":round(swing_lo,2),
-                           "age":len(closes)-1-i,"depth_pct":round((swing_lo-l[i])/swing_lo*100,2)})
-        if h[i]>swing_hi and closes[i]<swing_hi:
-            sweeps.append({"bar":i,"type":"BEAR_SWEEP","swept_level":round(swing_hi,2),
-                           "age":len(closes)-1-i,"depth_pct":round((h[i]-swing_hi)/swing_hi*100,2)})
-    active=None
-    for s in reversed(sweeps):
-        if s["age"]<=3: active=s; break
-    sweep_score=0
-    if active:
-        sweep_score=max(0,15-active["age"]*3)+min(3,int(active.get("depth_pct",0)*5))
-        sweep_score=min(15,sweep_score)
-    return {"sweeps":sweeps[-6:],"active":active,"sweep_score":sweep_score}
-
-
-def detect_smt_divergence(closes_a, closes_b, name_a, name_b, lookback=10):
-    if not closes_a or not closes_b or len(closes_a)<lookback+2 or len(closes_b)<lookback+2:
-        return {"smt":None,"desc":"","smt_score":0,"pair":""}
-    n=min(len(closes_a),len(closes_b),lookback*2+2)
-    a=closes_a[-n:]; b=closes_b[-n:]
-    ar=a[-lookback:]; ap=a[-(lookback*2):-lookback]
-    br=b[-lookback:]; bp=b[-(lookback*2):-lookback]
-    if not ap or not bp: return {"smt":None,"desc":"","smt_score":0,"pair":""}
-    a_hh=max(ar)>max(ap); b_hh=max(br)>max(bp)
-    a_ll=min(ar)<min(ap); b_ll=min(br)<min(bp)
-    smt=None; desc=""; score=0
-    if a_hh and not b_hh: smt="BEAR_SMT"; desc=f"{name_a} new high - {name_b} did not confirm"; score=10
-    elif b_hh and not a_hh: smt="BEAR_SMT"; desc=f"{name_b} new high - {name_a} did not confirm"; score=10
-    elif a_ll and not b_ll: smt="BULL_SMT"; desc=f"{name_a} new low - {name_b} held higher"; score=10
-    elif b_ll and not a_ll: smt="BULL_SMT"; desc=f"{name_b} new low - {name_a} held higher"; score=10
-    return {"smt":smt,"desc":desc,"smt_score":score,"pair":f"{name_a}/{name_b}"}
-
-
+# STRATEGY DETECTORS - ORB, GAP & GO, FIRST PULLBACK, PDH/PDL
 # ==============================================================
+def detect_orb(closes, highs=None, lows=None, lookback=5):
+    """
+    Opening Range Breakout - price breaking above/below prior N-day range.
+    On daily data this identifies range breakouts which align with ORB setups.
+    """
+    if not closes or len(closes)<lookback+2:
+        return {"orb_signal":None,"range_high":None,"range_low":None,
+                "breakout_pct":0,"type":"NO DATA","score":0}
+    h=highs or [c*1.005 for c in closes]; l=lows or [c*0.995 for c in closes]
+    range_highs=h[-(lookback+1):-1]; range_lows=l[-(lookback+1):-1]
+    range_high=max(range_highs); range_low=min(range_lows)
+    range_size=range_high-range_low if range_high>range_low else range_high*0.01
+    cur=closes[-1]
+    if cur>range_high:
+        bp=(cur-range_high)/range_size*100
+        return {"orb_signal":"LONG","range_high":range_high,"range_low":range_low,
+                "breakout_pct":round(bp,1),"type":"ORB BREAKOUT UP","score":20}
+    elif cur<range_low:
+        bp=(range_low-cur)/range_size*100
+        return {"orb_signal":"SHORT","range_high":range_high,"range_low":range_low,
+                "breakout_pct":round(bp,1),"type":"ORB BREAKDOWN","score":20}
+    else:
+        pct_to_high=(range_high-cur)/range_size*100
+        pct_to_low=(cur-range_low)/range_size*100
+        near_top=pct_to_high<15; near_bottom=pct_to_low<15
+        if near_top: type_str="NEAR ORB HIGH - WATCH"
+        elif near_bottom: type_str="NEAR ORB LOW - WATCH"
+        else: type_str="INSIDE RANGE"
+        return {"orb_signal":"RANGE","range_high":range_high,"range_low":range_low,
+                "breakout_pct":0,"type":type_str,"score":5,
+                "pct_to_high":round(pct_to_high,1),"pct_to_low":round(pct_to_low,1)}
+
+
+def detect_pdh_pdl(closes, highs=None, lows=None):
+    """
+    Previous Day High/Low - key support and resistance levels.
+    Breakout above PDH = bullish. Break below PDL = bearish.
+    """
+    if not closes or len(closes)<3:
+        return {"pdh":None,"pdl":None,"signal":None,"type":"","score":0}
+    h=highs or [c*1.005 for c in closes]; l=lows or [c*0.995 for c in closes]
+    pdh=h[-2]; pdl=l[-2]; cur=closes[-1]
+    if cur>pdh:
+        dist=(cur-pdh)/pdh*100
+        return {"pdh":pdh,"pdl":pdl,"signal":"LONG","type":"PDH BREAKOUT","dist_pct":round(dist,2),"score":15}
+    elif cur<pdl:
+        dist=(pdl-cur)/pdl*100
+        return {"pdh":pdh,"pdl":pdl,"signal":"SHORT","type":"PDL BREAKDOWN","dist_pct":round(dist,2),"score":15}
+    else:
+        pct_above_pdl=(cur-pdl)/(pdh-pdl)*100 if pdh>pdl else 50
+        return {"pdh":pdh,"pdl":pdl,"signal":"RANGE","type":"INSIDE PDH/PDL",
+                "pct_above_pdl":round(pct_above_pdl,1),"score":3}
+
+
+def detect_gap_go(closes, opens=None):
+    """
+    Gap and Go: Significant gap from prior close with continuation momentum.
+    Gap up + price holds above gap = buy. Gap down + stays below = sell.
+    Gap up + fade = short. Gap down + reclaim = long.
+    """
+    if not closes or len(closes)<3:
+        return {"gap":None,"gap_pct":0,"type":"","score":0}
+    gap_pct=(closes[-1]-closes[-2])/closes[-2]*100
+    mom_3d=(closes[-1]-closes[-3])/closes[-3]*100 if len(closes)>=3 else 0
+    if abs(gap_pct)<0.3: return {"gap":None,"gap_pct":round(gap_pct,2),"type":"NO GAP","score":0}
+    if gap_pct>0.3 and mom_3d>0:
+        return {"gap":"LONG","gap_pct":round(gap_pct,2),"type":"GAP UP GO","score":18}
+    elif gap_pct<-0.3 and mom_3d<0:
+        return {"gap":"SHORT","gap_pct":round(gap_pct,2),"type":"GAP DOWN GO","score":18}
+    elif gap_pct>0.3 and mom_3d<0:
+        return {"gap":"FADE_SHORT","gap_pct":round(gap_pct,2),"type":"GAP FADE SHORT","score":12}
+    elif gap_pct<-0.3 and mom_3d>0:
+        return {"gap":"FADE_LONG","gap_pct":round(gap_pct,2),"type":"GAP FADE LONG","score":12}
+    return {"gap":None,"gap_pct":round(gap_pct,2),"type":"GAP UNCLEAR","score":0}
+
+
+def detect_first_pullback(closes):
+    """
+    First Pullback: After a strong trending move, buy the first
+    pullback to EMA8 support (uptrend) or EMA8 resistance (downtrend).
+    High probability setup used by prop traders.
+    """
+    if not closes or len(closes)<15:
+        return {"pullback":None,"type":"","ema8":0,"score":0}
+    e8=ema_series(closes,8); e21=ema_series(closes,21)
+    if len(e8)<3 or len(e21)<3: return {"pullback":None,"type":"","ema8":0,"score":0}
+    in_uptrend=e8[-3]>e21[-3] and e8[-2]>e21[-2]
+    in_downtrend=e8[-3]<e21[-3] and e8[-2]<e21[-2]
+    cur=closes[-1]; ema8_now=e8[-1]; ema8_range=ema8_now*0.003
+    near_ema8_support=abs(cur-ema8_now)<=ema8_range and cur>=ema8_now*0.998
+    near_ema8_resist=abs(cur-ema8_now)<=ema8_range and cur<=ema8_now*1.002
+    prev_above=closes[-3]>e8[-3]*1.005 and closes[-2]>e8[-2]*1.002
+    prev_below=closes[-3]<e8[-3]*0.995 and closes[-2]<e8[-2]*0.998
+    if in_uptrend and prev_above and near_ema8_support:
+        return {"pullback":"LONG","type":"FIRST PULLBACK TO EMA8","ema8":round(ema8_now,4),"score":22}
+    elif in_downtrend and prev_below and near_ema8_resist:
+        return {"pullback":"SHORT","type":"FIRST PULLBACK TO EMA8","ema8":round(ema8_now,4),"score":22}
+    if in_uptrend and closes[-1]>ema8_now and closes[-2]<=e8[-2]*1.001:
+        return {"pullback":"LONG","type":"RECLAIM ABOVE EMA8","ema8":round(ema8_now,4),"score":14}
+    elif in_downtrend and closes[-1]<ema8_now and closes[-2]>=e8[-2]*0.999:
+        return {"pullback":"SHORT","type":"RECLAIM BELOW EMA8","ema8":round(ema8_now,4),"score":14}
+    return {"pullback":None,"type":"NO SETUP","ema8":round(ema8_now,4),"score":0}
+
+
+def detect_vwap_bounce(closes, highs=None, lows=None):
+    """
+    VWAP Bounce: Using EMA20 as a VWAP proxy on daily data.
+    Price bouncing off VWAP (EMA20) in direction of trend.
+    """
+    if not closes or len(closes)<22:
+        return {"vwap_signal":None,"type":"","vwap":0,"score":0}
+    e20=ema_series(closes,20); e8=ema_series(closes,8)
+    vwap=e20[-1]; cur=closes[-1]; vwap_range=vwap*0.004
+    trend_up=e8[-1]>e20[-1] and e8[-2]>e20[-2]
+    trend_dn=e8[-1]<e20[-1] and e8[-2]<e20[-2]
+    near_vwap=abs(cur-vwap)<=vwap_range
+    if trend_up and near_vwap and cur>=vwap*0.998:
+        return {"vwap_signal":"LONG","type":"VWAP BOUNCE LONG","vwap":round(vwap,4),"score":16}
+    elif trend_dn and near_vwap and cur<=vwap*1.002:
+        return {"vwap_signal":"SHORT","type":"VWAP BOUNCE SHORT","vwap":round(vwap,4),"score":16}
+    elif not near_vwap:
+        ext_pct=(cur-vwap)/vwap*100
+        if abs(ext_pct)>2:
+            return {"vwap_signal":"EXTENDED","type":f"EXTENDED {'ABOVE' if ext_pct>0 else 'BELOW'} VWAP {abs(ext_pct):.1f}%",
+                    "vwap":round(vwap,4),"ext_pct":round(ext_pct,2),"score":8}
+    return {"vwap_signal":None,"type":"AT VWAP","vwap":round(vwap,4),"score":4}
+
+
+def compute_all_strategies(closes, highs=None, lows=None, opens=None):
+    """Run all strategy detectors and return combined results."""
+    orb  = detect_orb(closes, highs, lows)
+    pdhl = detect_pdh_pdl(closes, highs, lows)
+    gap  = detect_gap_go(closes, opens)
+    pull = detect_first_pullback(closes)
+    vwap = detect_vwap_bounce(closes, highs, lows)
+    active_signals=[]
+    if orb.get("orb_signal") in ("LONG","SHORT"): active_signals.append(orb["type"])
+    if pdhl.get("signal") in ("LONG","SHORT"): active_signals.append(pdhl["type"])
+    if gap.get("gap") in ("LONG","SHORT","FADE_LONG","FADE_SHORT"): active_signals.append(gap["type"])
+    if pull.get("pullback") in ("LONG","SHORT"): active_signals.append(pull["type"])
+    if vwap.get("vwap_signal") in ("LONG","SHORT"): active_signals.append(vwap["type"])
+    direction_votes={"LONG":0,"SHORT":0}
+    for item,dir_key in [(orb,"orb_signal"),(pdhl,"signal"),(gap,"gap"),(pull,"pullback"),(vwap,"vwap_signal")]:
+        v=item.get(dir_key,"")
+        if v in ("LONG","FADE_LONG"): direction_votes["LONG"]+=1
+        elif v in ("SHORT","FADE_SHORT"): direction_votes["SHORT"]+=1
+    strategy_score=sum([
+        orb.get("score",0), pdhl.get("score",0),
+        gap.get("score",0), pull.get("score",0), vwap.get("score",0)
+    ])
+    strategy_score=min(40,strategy_score)
+    return {
+        "orb":orb,"pdhl":pdhl,"gap":gap,"pullback":pull,"vwap":vwap,
+        "active_signals":active_signals,"direction_votes":direction_votes,
+        "strategy_score":strategy_score,
+    }# ==============================================================
 # SIGNAL ENGINE
 # ==============================================================
 def compute_full_signal(closes, highs=None, lows=None, volumes=None, rules=None):
-    empty = {"signal":"HOLD","conf":50,"rsi":50,"price":closes[-1] if closes else 0,
-             "atr_pct":0,"bb_pct":50,"stoch_k":50,"mom":0,"vol_surge":1,"score":0,
-             "long_pts":0,"short_pts":0,"reasons":[],"rule_block":False,
-             "stop":None,"target":None,"ema8":0,"ema21":0,"ema50":0,
-             "divergence":{"bull_div":False,"bear_div":False,"desc":"","macd_bull":False,"macd_bear":False,"macd_desc":""},
-             "regime":{"regime":"UNKNOWN"},"patterns":[],"vol_regime":{"rv":0},"macd":0,"macd_signal":0,"rsi7":50}
+    empty={"signal":"HOLD","conf":50,"rsi":50,"price":closes[-1] if closes else 0,
+           "atr_pct":0,"bb_pct":50,"stoch_k":50,"mom":0,"vol_surge":1,"score":0,
+           "long_pts":0,"short_pts":0,"reasons":[],"rule_block":False,
+           "stop":None,"target":None,"ema8":0,"ema21":0,"ema50":0,
+           "divergence":{"bull_div":False,"bear_div":False,"desc":"","macd_bull":False,"macd_bear":False,"macd_desc":""},
+           "regime":{"regime":"UNKNOWN"},"patterns":[],"vol_regime":{"rv":0},"macd":0,"macd_signal":0,"rsi7":50}
     if not closes or len(closes)<22: return empty
     price=closes[-1]
     e8=ema_series(closes,8); e8v=e8[-1]; e8p=e8[-2] if len(e8)>1 else e8v
     e21=ema_series(closes,21); e21v=e21[-1]
     e50=ema_series(closes,50) if len(closes)>=50 else ema_series(closes,21); e50v=e50[-1]
     e3=ema_series(closes,3); e3v=e3[-1]; e3p=e3[-2] if len(e3)>1 else e3v
-    e12v=ema_series(closes,12)[-1]
-    e26v=ema_series(closes,26)[-1] if len(closes)>=26 else closes[-1]
+    e12v=ema_series(closes,12)[-1]; e26v=ema_series(closes,26)[-1] if len(closes)>=26 else closes[-1]
     macd=e12v-e26v
     macd_p=(ema_series(closes[:-1],12)[-1]-ema_series(closes[:-1],26)[-1] if len(closes[:-1])>=26 else macd)
     macd_sl=ema_series([macd]*9,9)[-1]
@@ -883,21 +940,21 @@ def compute_full_signal(closes, highs=None, lows=None, volumes=None, rules=None)
         vol_ma=sum(volumes[-20:])/20; vol_surge=volumes[-1]/(vol_ma+1e-9)
     mom5=(closes[-1]-closes[-6])/closes[-6]*100 if len(closes)>5 else 0
     long_pts=0; short_pts=0; reasons=[]
-    if e8v>e21v>e50v: long_pts+=5; reasons.append("EMA 8/21/50 fully bullish")
-    elif e8v>e21v: long_pts+=3; reasons.append("EMA 8 > 21 bullish")
-    if e8v<e21v<e50v: short_pts+=5; reasons.append("EMA 8/21/50 fully bearish")
-    elif e8v<e21v: short_pts+=3; reasons.append("EMA 8 < 21 bearish")
+    if e8v>e21v>e50v: long_pts+=5; reasons.append("EMA stack fully bullish")
+    elif e8v>e21v: long_pts+=3; reasons.append("EMA 8 above 21 bullish")
+    if e8v<e21v<e50v: short_pts+=5; reasons.append("EMA stack fully bearish")
+    elif e8v<e21v: short_pts+=3; reasons.append("EMA 8 below 21 bearish")
     if e3v>e8v and e3p<=e8p: long_pts+=3; reasons.append("EMA 3x8 bullish crossover")
     if e3v<e8v and e3p>=e8p: short_pts+=3; reasons.append("EMA 3x8 bearish crossover")
     if macd>macd_sl and macd_p<=macd_sl: long_pts+=4; reasons.append("MACD bullish crossover")
     elif macd>macd_sl: long_pts+=2
     if macd<macd_sl and macd_p>=macd_sl: short_pts+=4; reasons.append("MACD bearish crossover")
     elif macd<macd_sl: short_pts+=2
-    if rsi_val<28: long_pts+=5; reasons.append(f"RSI {rsi_val:.0f} - deeply oversold")
-    elif rsi_val<38: long_pts+=2; reasons.append(f"RSI {rsi_val:.0f} - low territory")
+    if rsi_val<28: long_pts+=5; reasons.append(f"RSI {rsi_val:.0f} deeply oversold")
+    elif rsi_val<38: long_pts+=2; reasons.append(f"RSI {rsi_val:.0f} low territory")
     elif 42<rsi_val<60: long_pts+=1
-    if rsi_val>72: short_pts+=5; reasons.append(f"RSI {rsi_val:.0f} - deeply overbought")
-    elif rsi_val>62: short_pts+=2; reasons.append(f"RSI {rsi_val:.0f} - elevated")
+    if rsi_val>72: short_pts+=5; reasons.append(f"RSI {rsi_val:.0f} deeply overbought")
+    elif rsi_val>62: short_pts+=2; reasons.append(f"RSI {rsi_val:.0f} elevated")
     if stoch_k<15 and stoch_k>stoch_prev: long_pts+=3; reasons.append("Stoch crossed up from oversold")
     elif stoch_k<25: long_pts+=1
     if stoch_k>85 and stoch_k<stoch_prev: short_pts+=3; reasons.append("Stoch crossed down from overbought")
@@ -922,8 +979,8 @@ def compute_full_signal(closes, highs=None, lows=None, volumes=None, rules=None)
     for rule in (rules or []):
         if not rule.get("active",True): continue
         rt=rule.get("type",""); rv=float(rule.get("value",0))
-        if rt=="rsi_max" and rsi_val>rv: rule_block=True; reasons.append(f"Rule: RSI>{rv:.0f} blocks")
-        if rt=="rsi_min" and rsi_val<rv: rule_block=True; reasons.append(f"Rule: RSI<{rv:.0f} blocks")
+        if rt=="rsi_max" and rsi_val>rv: rule_block=True; reasons.append(f"Rule: RSI above {rv:.0f} blocks")
+        if rt=="rsi_min" and rsi_val<rv: rule_block=True; reasons.append(f"Rule: RSI below {rv:.0f} blocks")
         if rt=="no_trade_hours":
             try:
                 now_et=datetime.now(ZoneInfo("America/New_York")); hr=now_et.hour
@@ -937,11 +994,12 @@ def compute_full_signal(closes, highs=None, lows=None, volumes=None, rules=None)
         if rt=="atr_max" and atr_pct>rv: rule_block=True; reasons.append(f"Rule: ATR {atr_pct:.1f}% too volatile")
         if rt=="apex_daily_guard":
             daily_left=APEX_CONFIG["daily_loss_limit"]+st.session_state.get("apex_daily_pnl",0)
-            if daily_left<rv: rule_block=True; reasons.append(f"Apex: less than ${rv:.0f} daily headroom")
+            if daily_left<rv: rule_block=True; reasons.append(f"Apex: less than ${rv:.0f} headroom")
         if rt=="no_rth":
             try:
-                now_et=datetime.now(ZoneInfo("America/New_York")); hr=now_et.hour
-                if not (9<=hr<16): rule_block=True; reasons.append("Rule: Outside RTH 9:30am-4pm ET")
+                now_et=datetime.now(ZoneInfo("America/New_York")); hr=now_et.hour; mn=now_et.minute
+                rth_start=(hr==9 and mn>=30) or (hr>=10 and hr<16)
+                if not rth_start: rule_block=True; reasons.append("Rule: Outside RTH 9:30am-4pm ET")
             except Exception: pass
     score=long_pts-short_pts
     if rule_block or abs(score)<3: sig="HOLD"; conf=30
@@ -954,20 +1012,21 @@ def compute_full_signal(closes, highs=None, lows=None, volumes=None, rules=None)
     else: sig="HOLD"; conf=30
     stop_dist=atr_val*1.5; rr=st.session_state.get("rr_ratio",2.0)
     is_long="BUY" in sig or sig=="OVERSOLD"
-    stop=round(price-stop_dist if is_long else price+stop_dist,4)
-    target=round(price+stop_dist*rr if is_long else price-stop_dist*rr,4)
+    stop=round(price-stop_dist if is_long else price+stop_dist,6)
+    target=round(price+stop_dist*rr if is_long else price-stop_dist*rr,6)
     return {"signal":sig,"conf":conf,"score":score,"long_pts":long_pts,"short_pts":short_pts,
             "rsi":round(rsi_val,1),"rsi7":round(rsi7_val,1),"price":price,
             "atr_pct":round(atr_pct,2),"bb_pct":round(bb_pct_val,1),
             "stoch_k":round(stoch_k,1),"mom":round(mom5,2),"vol_surge":round(vol_surge,2),
-            "macd":round(macd,4),"macd_signal":round(macd_sl,4),
-            "ema8":round(e8v,2),"ema21":round(e21v,2),"ema50":round(e50v,2),
+            "macd":round(macd,6),"macd_signal":round(macd_sl,6),
+            "ema8":round(e8v,6),"ema21":round(e21v,6),"ema50":round(e50v,6),
             "reasons":reasons[:8],"rule_block":rule_block,"stop":stop,"target":target,
             "divergence":div,"regime":detect_regime(closes,h_arr,l_arr),
             "patterns":scan_patterns(closes,h_arr,l_arr),"vol_regime":volatility_regime(closes)}
 
 
-def compute_tqs(sig, sm_score, liq_info=None, flow_info=None, rb_info=None, sweep_info=None, smt_info=None):
+def compute_tqs(sig, sm_score, liq_info=None, flow_info=None,
+                rb_info=None, sweep_info=None, smt_info=None, strategy_info=None):
     pts=0; pts+=min(30,sig.get("conf",30)*0.35)
     reg=sig.get("regime",{}).get("regime","UNKNOWN")
     if reg=="TRENDING": pts+=15
@@ -1002,14 +1061,78 @@ def compute_tqs(sig, sm_score, liq_info=None, flow_info=None, rb_info=None, swee
         sl=s in ("BUY","STRONG BUY","OVERSOLD"); ss=s in ("SELL","STRONG SELL","OVERBOUGHT")
         if (sw["type"]=="BULL_SWEEP" and sl) or (sw["type"]=="BEAR_SWEEP" and ss): pts+=sweep_info.get("sweep_score",0)
         elif (sw["type"]=="BULL_SWEEP" and ss) or (sw["type"]=="BEAR_SWEEP" and sl): pts-=4
-    if smt_info and smt_info.get("smt"):
+    if strategy_info:
         s=sig.get("signal","HOLD")
         sl=s in ("BUY","STRONG BUY","OVERSOLD"); ss=s in ("SELL","STRONG SELL","OVERBOUGHT")
-        if (smt_info["smt"]=="BULL_SMT" and sl) or (smt_info["smt"]=="BEAR_SMT" and ss): pts+=smt_info.get("smt_score",0)
-        elif (smt_info["smt"]=="BULL_SMT" and ss) or (smt_info["smt"]=="BEAR_SMT" and sl): pts-=5
+        base_score=strategy_info.get("strategy_score",0)
+        dv=strategy_info.get("direction_votes",{})
+        if sl and dv.get("LONG",0)>=2: pts+=base_score
+        elif ss and dv.get("SHORT",0)>=2: pts+=base_score
+        elif sl and dv.get("SHORT",0)>dv.get("LONG",0): pts-=10
+        elif ss and dv.get("LONG",0)>dv.get("SHORT",0): pts-=10
+        else: pts+=base_score*0.3
     if sig.get("rule_block"): pts-=20
     if sig.get("signal")=="HOLD": pts=pts*0.4
     return int(min(100,max(0,pts)))
+
+
+def find_rejection_blocks(closes, highs=None, lows=None, lookback=20):
+    if not closes or len(closes)<5: return {"blocks":[],"active":None,"rb_score":0}
+    h=highs or [c*1.005 for c in closes]; l=lows or [c*0.995 for c in closes]
+    blocks=[]
+    for i in range(max(1,len(closes)-lookback),len(closes)):
+        op=closes[i-1]; cl=closes[i]; hi=h[i]; lo=l[i]; rng=hi-lo
+        if rng<=0: continue
+        uw=hi-max(op,cl); lw=min(op,cl)-lo; body=abs(cl-op)
+        if lw/rng>0.55 and (cl-lo)/rng>0.66 and body/rng<0.4:
+            blocks.append({"bar":i,"type":"BULL_RB","price":round(lo,6),"strength":int(min(100,(lw/rng)*100+(cl-lo)/rng*30)),"age":len(closes)-1-i})
+        if uw/rng>0.55 and (hi-cl)/rng>0.66 and body/rng<0.4:
+            blocks.append({"bar":i,"type":"BEAR_RB","price":round(hi,6),"strength":int(min(100,(uw/rng)*100+(hi-cl)/rng*30)),"age":len(closes)-1-i})
+    active=None
+    for b in reversed(blocks):
+        if b["age"]<=5: active=b; break
+    rb_score=max(0,15-active["age"]*2) if active else 0
+    return {"blocks":blocks[-8:],"active":active,"rb_score":rb_score}
+
+
+def find_liquidity_sweeps(closes, highs=None, lows=None, lookback=15):
+    if not closes or len(closes)<lookback+2: return {"sweeps":[],"active":None,"sweep_score":0}
+    h=highs or [c*1.005 for c in closes]; l=lows or [c*0.995 for c in closes]
+    sweeps=[]
+    for i in range(max(5,len(closes)-8),len(closes)):
+        ph=h[max(0,i-lookback):i]; pl=l[max(0,i-lookback):i]
+        if not ph or not pl: continue
+        swing_hi=max(ph); swing_lo=min(pl)
+        if l[i]<swing_lo and closes[i]>swing_lo:
+            sweeps.append({"bar":i,"type":"BULL_SWEEP","swept_level":round(swing_lo,6),"age":len(closes)-1-i,"depth_pct":round((swing_lo-l[i])/swing_lo*100,2)})
+        if h[i]>swing_hi and closes[i]<swing_hi:
+            sweeps.append({"bar":i,"type":"BEAR_SWEEP","swept_level":round(swing_hi,6),"age":len(closes)-1-i,"depth_pct":round((h[i]-swing_hi)/swing_hi*100,2)})
+    active=None
+    for s in reversed(sweeps):
+        if s["age"]<=3: active=s; break
+    sweep_score=0
+    if active:
+        sweep_score=max(0,15-active["age"]*3)+min(3,int(active.get("depth_pct",0)*5))
+        sweep_score=min(15,sweep_score)
+    return {"sweeps":sweeps[-6:],"active":active,"sweep_score":sweep_score}
+
+
+def detect_smt_divergence(closes_a, closes_b, name_a, name_b, lookback=10):
+    if not closes_a or not closes_b or len(closes_a)<lookback+2 or len(closes_b)<lookback+2:
+        return {"smt":None,"desc":"","smt_score":0,"pair":""}
+    n=min(len(closes_a),len(closes_b),lookback*2+2)
+    a=closes_a[-n:]; b=closes_b[-n:]
+    ar=a[-lookback:]; ap=a[-(lookback*2):-lookback]
+    br=b[-lookback:]; bp=b[-(lookback*2):-lookback]
+    if not ap or not bp: return {"smt":None,"desc":"","smt_score":0,"pair":""}
+    a_hh=max(ar)>max(ap); b_hh=max(br)>max(bp)
+    a_ll=min(ar)<min(ap); b_ll=min(br)<min(bp)
+    smt=None; desc=""; score=0
+    if a_hh and not b_hh: smt="BEAR_SMT"; desc=f"{name_a} new high - {name_b} did not confirm"; score=10
+    elif b_hh and not a_hh: smt="BEAR_SMT"; desc=f"{name_b} new high - {name_a} did not confirm"; score=10
+    elif a_ll and not b_ll: smt="BULL_SMT"; desc=f"{name_a} new low - {name_b} held higher"; score=10
+    elif b_ll and not a_ll: smt="BULL_SMT"; desc=f"{name_b} new low - {name_a} held higher"; score=10
+    return {"smt":smt,"desc":desc,"smt_score":score,"pair":f"{name_a}/{name_b}"}
 
 
 def trader_vote(tr, sig):
@@ -1044,7 +1167,7 @@ def quick_fitness(closes, mk, risk_pct, rr, min_conf, name=""):
     if not closes or len(closes)<35: return 0.0
     bal=1000.0; peak=1000.0; wins=losses=0; pos=None
     stop_mult=MARKETS.get(mk,{}).get("stop",0.015)
-    for i in range(max(22,len(closes)-60), len(closes)):
+    for i in range(max(22,len(closes)-60),len(closes)):
         sig=compute_full_signal(closes[:i+1]); price=closes[i]
         if pos:
             is_long=pos["dir"]=="long"
@@ -1072,7 +1195,7 @@ def quick_fitness(closes, mk, risk_pct, rr, min_conf, name=""):
 
 
 def update_trader_fitness(tr, all_market_closes):
-    scores={mk:quick_fitness(closes,mk,tr["risk_pct"],tr["rr"],tr["min_conf"],tr.get("name","")) for mk,closes in all_market_closes.items()}
+    scores={mk:quick_fitness(c,mk,tr["risk_pct"],tr["rr"],tr["min_conf"],tr.get("name","")) for mk,c in all_market_closes.items()}
     if scores:
         avg=round(np.mean(list(scores.values())),1)
         tr["fitness"]=avg; tr["fitness_history"]=(tr.get("fitness_history",[])+[avg])[-30:]
@@ -1094,8 +1217,7 @@ def adapt_trader(tr):
     if new!=current:
         tr["min_conf"]=new
         tr.setdefault("adapt_log",[]).append({"time":datetime.now().strftime("%H:%M:%S"),"wr":round(wr,0),"old":current,"new":new,"msg":msg})
-        tr["adapt_log"]=tr["adapt_log"][-20:]
-        return msg
+        tr["adapt_log"]=tr["adapt_log"][-20:]; return msg
     return None
 
 
@@ -1115,10 +1237,9 @@ def check_apex_limits():
     hw=st.session_state.get("apex_high_water",APEX_CONFIG["account_size"])
     if apex_equity>hw: hw=apex_equity; st.session_state["apex_high_water"]=hw
     trailing_dd=hw-apex_equity; trading_days=st.session_state.get("apex_trading_days",[])
-    target_reached=cum_pnl>=APEX_CONFIG["profit_target"]
     locked=False; lock_reason=""
-    if daily_pnl<=-APEX_CONFIG["daily_loss_limit"]: locked=True; lock_reason=f"Daily loss limit hit: ${abs(daily_pnl):,.0f} lost today"
-    elif trailing_dd>=APEX_CONFIG["trailing_drawdown"]: locked=True; lock_reason=f"Trailing drawdown limit: ${trailing_dd:,.0f} below peak"
+    if daily_pnl<=-APEX_CONFIG["daily_loss_limit"]: locked=True; lock_reason=f"Daily loss limit: ${abs(daily_pnl):,.0f} lost today"
+    elif trailing_dd>=APEX_CONFIG["trailing_drawdown"]: locked=True; lock_reason=f"Trailing drawdown: ${trailing_dd:,.0f} below peak"
     warnings=[]
     if not locked:
         dl_used=abs(min(0,daily_pnl))
@@ -1131,13 +1252,12 @@ def check_apex_limits():
     prev_locked=st.session_state.get("apex_locked",False)
     if locked!=prev_locked:
         st.session_state["apex_locked"]=locked; st.session_state["apex_lock_reason"]=lock_reason
-        for tr in TRADERS: tr["paused"]=locked
-        state_save()
+        for tr in TRADERS: tr["paused"]=locked; state_save()
     return {"locked":locked,"lock_reason":lock_reason,"warnings":warnings,
             "apex_equity":round(apex_equity,2),"high_water":round(hw,2),
             "trailing_dd":round(trailing_dd,2),"daily_pnl":round(daily_pnl,2),
             "cumulative_pnl":round(cum_pnl,2),"trading_days":len(trading_days),
-            "target_reached":target_reached,
+            "target_reached":cum_pnl>=APEX_CONFIG["profit_target"],
             "pct_to_target":min(100,max(0,cum_pnl/APEX_CONFIG["profit_target"]*100)),
             "daily_loss_pct":min(100,max(0,abs(min(0,daily_pnl))/APEX_CONFIG["daily_loss_limit"]*100)),
             "trailing_dd_pct":min(100,max(0,trailing_dd/APEX_CONFIG["trailing_drawdown"]*100))}
@@ -1192,10 +1312,9 @@ def simulate_trader(tr, market_signals):
         if exit_reason:
             ep=tp_price if exit_reason=="TP" else stop_price if exit_reason in ("SL","TRAIL") else p
             pnl=(ep-entry)*units if is_long else (entry-ep)*units
-            tr["balance"]=max(0.0,tr["balance"]+pnl); tr["peak"]=max(tr["peak"],tr["balance"])
-            is_win=pnl>0
+            tr["balance"]=max(0.0,tr["balance"]+pnl); tr["peak"]=max(tr["peak"],tr["balance"]); is_win=pnl>0
             tr["trades"].append({"market":mk,"dir":pos.get("dir","long"),"entry":entry,
-                "exit":round(ep,4),"pnl":round(pnl,2),"result":"win" if is_win else "loss",
+                "exit":round(ep,6),"pnl":round(pnl,2),"result":"win" if is_win else "loss",
                 "reason":exit_reason,"time":datetime.now().strftime("%H:%M:%S"),
                 "conf":pos.get("conf",0),"bars":pos["bars_in_trade"]})
             if is_win:
@@ -1231,8 +1350,8 @@ def simulate_trader(tr, market_signals):
         risk_amt=min(tr["balance"]*tr["risk_pct"],max(0,daily_left*0.8))
         if risk_amt<=0: continue
         units=risk_amt/max(sd,1e-9)
-        tr["open_pos"]={"market":mk,"dir":d,"entry":round(p,2),"stop":round(stop,2),
-            "tp":round(tp,2),"units":units,"risk_amt":round(risk_amt,2),
+        tr["open_pos"]={"market":mk,"dir":d,"entry":round(p,6),"stop":round(stop,6),
+            "tp":round(tp,6),"units":units,"risk_amt":round(risk_amt,2),
             "time":datetime.now().strftime("%H:%M:%S"),"conf":sig.get("conf",0),
             "bars_in_trade":0,"trailed":False}
         state_save(); break
@@ -1244,7 +1363,7 @@ def simulate_trader(tr, market_signals):
 def run_diagnostics(sigs, fg_val):
     per={}; all_scores=[]
     for mk,sig in sigs.items():
-        s=0; notes=[]
+        s=0
         conf=sig.get("conf",30)
         if sig.get("signal")!="HOLD": s+=min(30,conf//3)
         rsi=sig.get("rsi",50)
@@ -1265,7 +1384,7 @@ def run_diagnostics(sigs, fg_val):
         if div.get("bull_div") or div.get("macd_bull"): s+=10
         if div.get("bear_div") or div.get("macd_bear"): s+=10
         s=min(100,max(0,s)); all_scores.append(s)
-        per[mk]={"score":s,"notes":notes,"dir":ss,"conf":conf}
+        per[mk]={"score":s,"notes":[],"dir":ss,"conf":conf}
     return {"per":per,"overall":round(np.mean(all_scores) if all_scores else 0),"fg_score":10 if 20<fg_val<80 else 0}
 
 
@@ -1282,9 +1401,9 @@ def call_claude(prompt, system, key, max_tokens=900):
     except Exception as e: return None,str(e)
 
 
-NOTES_SYSTEM = "You are Nigel, trading intelligence for an Apex Trader Funding $50K NinjaTrader account. Contracts: NQ (E-mini Nasdaq $20/pt), CL (Crude Oil $1K per $1), GC (Gold $100 per $1), MNQ (Micro Nasdaq $2/pt), MES (Micro SP500 $5/pt), MBT (Micro Bitcoin 0.1BTC). Format: JSON array of 3-4 notes, each with type (watch|buy|sell|info), market, and text. Max 2 sentences. Return ONLY valid JSON."
-AI_ANALYST_SYSTEM = "You are Nigel, senior quant on an Apex Trader Funding $50K NinjaTrader account. Contracts: NQ=$20/pt (50pts=$1K), CL=$1K per $1 move, GC=$100 per $1 (10pt move=$1K), MNQ=$2/pt, MES=$5/pt, MBT=0.1BTC. Apex rules: $1K daily loss limit, $2.5K trailing drawdown, $3K profit target. Daily $1K target: NQ needs 50pts on 1 contract, CL needs $1 move, GC needs $10 move. Give sharp actionable analysis under 400 words with exact point targets and contract counts."
-WHISPER_SYSTEM = "You are Nigel's inner voice. One sharp observation about the current futures market. Max 20 words. Return ONLY the text."
+NOTES_SYSTEM = "You are Nigel, trading intelligence for Apex Trader Funding $50K NinjaTrader. Contracts: NQ ($20/pt - 50pts=$1K), CL ($1K per $1), GC ($100 per $1 - $10=$1K), MNQ ($2/pt), MES ($5/pt), MBT (0.1 BTC). Strategies: ORB breakout, Gap and Go, First Pullback to EMA8, PDH/PDL levels. Format: JSON array of 3-4 notes, each with type (watch|buy|sell|info), market, and text. Max 2 sentences. Return ONLY valid JSON."
+AI_ANALYST_SYSTEM = "You are Nigel, senior quant on an Apex Trader Funding $50K NinjaTrader account. Contracts: NQ=$20/pt (50pts=$1K), CL=$1K/$1 (need $1 move), GC=$100/$1 ($10=$1K), MNQ=$2/pt, MES=$5/pt, MBT=0.1BTC. Apex: $1K daily loss limit, $2.5K trailing DD, $3K profit target. Strategies used: 8am ORB breakout, 9:30am RTH open ORB, Gap and Go, First Pullback to EMA8, PDH/PDL breaks. Give specific point targets and contract counts. Under 400 words."
+WHISPER_SYSTEM = "You are Nigel's inner voice for a NinjaTrader futures trader. One sharp market observation. Max 20 words. Return ONLY the text."
 
 
 def push_note(ntype, market, text):
@@ -1293,20 +1412,34 @@ def push_note(ntype, market, text):
     state_save()
 
 
-def generate_notes(sigs, sessions):
+def generate_notes(sigs, sessions, strategies_per_market):
     if not CLKEY:
         for mk,sig in sigs.items():
             s=sig.get("signal","HOLD"); m=MARKETS[mk]
-            if s=="STRONG BUY": push_note("buy",mk,f"{m['label']} ({mk}) aligned. {m['apex_note']}.")
-            elif s=="STRONG SELL": push_note("sell",mk,f"{m['label']} ({mk}) deteriorating on all timeframes.")
-            elif s=="OVERSOLD": push_note("buy",mk,f"{m['label']} flush complete - wait one confirming bar before entry.")
-            elif s=="OVERBOUGHT": push_note("watch",mk,f"{m['label']} extended. Protect profits, avoid chasing.")
-            elif s=="BUY": push_note("info",mk,f"{m['label']} building a case for the upside.")
+            st_info=strategies_per_market.get(mk,{})
+            active=st_info.get("active_signals",[])
+            if s=="STRONG BUY":
+                note=f"{m['label']} ({mk}) aligned. {m['apex_note']}."
+                if active: note+=f" Strategy: {active[0]}."
+                push_note("buy",mk,note)
+            elif s=="STRONG SELL":
+                note=f"{m['label']} ({mk}) deteriorating."
+                if active: note+=f" Strategy: {active[0]}."
+                push_note("sell",mk,note)
+            elif s=="OVERSOLD": push_note("buy",mk,f"{m['label']} flush complete - wait confirming bar. Check PDL for entry.")
+            elif s=="OVERBOUGHT": push_note("watch",mk,f"{m['label']} extended. Protect profits - check PDH for resistance.")
+            elif s=="BUY":
+                orb=st_info.get("orb",{}); note=f"{m['label']} building case for upside."
+                if orb.get("orb_signal")=="LONG": note+=f" ORB breakout active."
+                push_note("info",mk,note)
         return
     if time.time()-st.session_state["last_ai_call"]<90: return
     st.session_state["last_ai_call"]=time.time()
-    summaries=" | ".join(f"{MARKETS[k]['label']} ({k}): {v['signal']} RSI={v['rsi']:.0f}" for k,v in sigs.items())
-    resp,_=call_claude(f"Markets: {summaries}. Sessions: {', '.join(sessions)}. Generate 4 notes.",NOTES_SYSTEM,CLKEY,600)
+    summaries=[]
+    for k,v in sigs.items():
+        st_i=strategies_per_market.get(k,{}); active=st_i.get("active_signals",[])[:2]
+        summaries.append(f"{MARKETS[k]['label']} ({k}): {v['signal']} RSI={v['rsi']:.0f} strategies={','.join(active) if active else 'none'}")
+    resp,_=call_claude(f"Markets: {' | '.join(summaries)}. Sessions: {', '.join(sessions)}. Generate 4 notes.",NOTES_SYSTEM,CLKEY,600)
     if resp:
         try:
             parsed=json.loads(resp.strip().replace("```json","").replace("```","").strip())
@@ -1319,24 +1452,32 @@ def generate_whisper(sigs):
     if time.time()-st.session_state["last_whisper_call"]<300: return
     st.session_state["last_whisper_call"]=time.time()
     signals_str=", ".join(f"{k}:{v['signal']}" for k,v in sigs.items())
-    resp,err=call_claude(f"NinjaTrader futures signals: {signals_str}. One whisper.",WHISPER_SYSTEM,CLKEY,60)
+    resp,err=call_claude(f"NinjaTrader futures: {signals_str}. One whisper.",WHISPER_SYSTEM,CLKEY,60)
     if resp and not err:
         w=resp.strip().replace('"','').replace("'",'')
         st.session_state["whisper_feed"].insert(0,{"text":w,"time":datetime.now().strftime("%H:%M")})
         st.session_state["whisper_feed"]=st.session_state["whisper_feed"][:10]; state_save()
 
 
-def build_ai_context(sigs, prices_dict, diag, apex_status):
+def build_ai_context(sigs, raw_data, diag, apex_status, strategies_per_market):
     now_et=datetime.now(ZoneInfo("America/New_York"))
     lines=[
         f"TIME: {now_et.strftime('%H:%M ET')}",
         f"APEX: equity=${apex_status['apex_equity']:,.0f} daily={apex_status['daily_pnl']:+,.0f} dd=${apex_status['trailing_dd']:,.0f} profit=${apex_status['cumulative_pnl']:,.0f}",
         f"STATUS: {'LOCKED' if apex_status['locked'] else 'CLEAR'}",
-        f"HEALTH: {diag.get('overall',0)}/100","","FUTURES SIGNALS:",
+        f"HEALTH: {diag.get('overall',0)}/100","","FUTURES SIGNALS (correct prices):",
     ]
     for mk,sig in sigs.items():
-        m=MARKETS[mk]
-        lines.append(f"  {mk} ({m['label']} - {m['contract_size']}): {sig['signal']} conf={sig['conf']}% RSI={sig['rsi']} mom={sig['mom']:+.1f}% regime={sig['regime'].get('regime','?')}")
+        m=MARKETS[mk]; fp=fmt_futures(mk,sig.get("price",0))
+        st_i=strategies_per_market.get(mk,{}); active=st_i.get("active_signals",[])[:2]
+        orb=st_i.get("orb",{}); pdhl=st_i.get("pdhl",{})
+        sl_fp,tp_fp=proxy_to_futures_stop_target(mk,sig.get("stop"),sig.get("target"))
+        lines.append(f"  {mk} ({m['label']} - {m['contract_size']}): {sig['signal']} conf={sig['conf']}% "
+                     f"price={fp} SL={fmt_futures(mk,sig.get('stop',0)) if sig.get('stop') else '--'} "
+                     f"TP={fmt_futures(mk,sig.get('target',0)) if sig.get('target') else '--'} "
+                     f"RSI={sig['rsi']} regime={sig['regime'].get('regime','?')} "
+                     f"strategies=[{','.join(active) if active else 'none'}] "
+                     f"ORB={orb.get('type','?')} PDH={fmt_futures(mk,pdhl.get('pdh',0)) if pdhl.get('pdh') else '--'} PDL={fmt_futures(mk,pdhl.get('pdl',0)) if pdhl.get('pdl') else '--'}")
     return "\n".join(lines)
 
 
@@ -1403,31 +1544,27 @@ def build_journal_csv():
         for t in tr.get("trades",[]):
             mk=t.get("market",""); m=MARKETS.get(mk,{})
             rows.append({"Desk":tr["name"],"Contract":mk,"Name":m.get("label",""),
-                "Direction":t.get("dir",""),"Entry":t.get("entry",""),"Exit":t.get("exit",""),
+                "Direction":t.get("dir",""),"Entry_Proxy":t.get("entry",""),
+                "Entry_Futures":fmt_futures(mk,t.get("entry",0)) if t.get("entry") else "",
+                "Exit_Proxy":t.get("exit",""),
+                "Exit_Futures":fmt_futures(mk,t.get("exit",0)) if t.get("exit") else "",
                 "PnL":t.get("pnl",0),"Result":t.get("result",""),"Reason":t.get("reason",""),
                 "Time":t.get("time",""),"Confidence":t.get("conf",0),
                 "ContractSize":m.get("contract_size","")})
     if not rows: return None
     buf=io.BytesIO(); pd.DataFrame(rows).to_csv(buf,index=False)
-    return buf.getvalue()
-
-
-def fmt_price(mk, p):
-    if p >= 10000: return f"${p:,.0f}"
-    elif p >= 100: return f"${p:,.2f}"
-    else: return f"${p:,.2f}"# ==============================================================
+    return buf.getvalue()# ==============================================================
 # SIDEBAR
 # ==============================================================
 with st.sidebar:
     st.markdown('<div style="font-family:Cinzel,serif;font-weight:900;font-size:1.3rem;letter-spacing:.3em;color:#fff;margin:16px 0 2px;">NIGEL</div>', unsafe_allow_html=True)
-    st.markdown('<div style="font-family:JetBrains Mono,monospace;font-size:9px;color:rgba(255,149,0,0.8);letter-spacing:.12em;margin-bottom:3px;">APEX NINJATRADER v5.4</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-family:JetBrains Mono,monospace;font-size:9px;color:rgba(255,149,0,0.8);letter-spacing:.12em;margin-bottom:3px;">APEX NT v5.5 - ORB EDITION</div>', unsafe_allow_html=True)
     st.markdown('<div style="font-family:JetBrains Mono,monospace;font-size:9px;color:#5a5570;letter-spacing:.08em;margin-bottom:14px;">NQ CL GC MNQ MES MBT</div>', unsafe_allow_html=True)
-    restore_ts=st.session_state.get("__restore_ts__","--")
-    state_kb=PERSIST_PATH.stat().st_size/1024 if PERSIST_PATH.exists() else 0
+    restore_ts=st.session_state.get("__restore_ts__","--"); state_kb=PERSIST_PATH.stat().st_size/1024 if PERSIST_PATH.exists() else 0
     st.markdown(f'<div class="persist-banner"><div style="font-size:9px;">STATE PERSISTENCE</div><div style="font-size:9px;color:#3a3550;margin-top:2px;">Restored {restore_ts} - {state_kb:.1f} KB</div></div>', unsafe_allow_html=True)
     with st.expander("API Keys"):
-        np_ = st.text_input("Polygon.io", value=POLY, type="password", key="sb_poly")
-        nc_ = st.text_input("Claude AI", value=CLKEY, type="password", key="sb_cla")
+        np_=st.text_input("Polygon.io",value=POLY,type="password",key="sb_poly")
+        nc_=st.text_input("Claude AI",value=CLKEY,type="password",key="sb_cla")
         if st.button("Save Keys"):
             st.session_state["polygon_key"]=np_; st.session_state["claude_key"]=nc_
             state_save(); st.cache_data.clear(); st.rerun()
@@ -1466,8 +1603,7 @@ with st.sidebar:
     st.divider()
     jcsv=build_journal_csv()
     if jcsv:
-        st.download_button("Download Journal",data=jcsv,
-            file_name=f"nigel_apex_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",mime="text/csv")
+        st.download_button("Download Journal",data=jcsv,file_name=f"nigel_apex_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",mime="text/csv")
     st.caption(f"Updated {datetime.now().strftime('%H:%M:%S')}")
 
 SEL=st.session_state["selected_markets"] or ["NQ","CL","GC","MBT"]
@@ -1484,36 +1620,42 @@ with st.spinner(""):
             cmap=CRYPTO_MAP[mk]; bd=fetch_binance_live(mk) or {}
             cg=fetch_crypto_price(cmap["cg_id"],fallback=cmap["fallback"])
             price=bd.get("price",cg["price"]); chg=bd.get("chg",cg["chg"])
-            raw_data[mk]={"closes":cg["closes"],"price":price,"chg":chg,
-                "high":bd.get("high",price*1.01),"low":bd.get("low",price*0.99)}
+            raw_data[mk]={"closes":cg["closes"],"opens":cg["closes"],"highs":[c*1.01 for c in cg["closes"]],
+                "lows":[c*0.99 for c in cg["closes"]],"vols":[1]*len(cg["closes"]),
+                "price":price,"chg":chg,"high":bd.get("high",price*1.01),"low":bd.get("low",price*0.99)}
         else:
             ticker=TICKERS.get(mk,mk); pd_=fetch_polygon_data(ticker,POLY)
-            raw_data[mk]={"closes":pd_["closes"],"price":pd_["price"],"chg":pd_["chg"]}
+            raw_data[mk]=pd_; raw_data[mk]["price"]=pd_["price"]; raw_data[mk]["chg"]=pd_["chg"]
         live_prices[mk]=raw_data[mk]["price"]
-        market_signals[mk]=compute_full_signal(raw_data[mk]["closes"],rules=st.session_state.get("rule_set",[]))
+        market_signals[mk]=compute_full_signal(
+            raw_data[mk]["closes"],raw_data[mk].get("highs"),raw_data[mk].get("lows"),
+            raw_data[mk].get("vols"),rules=st.session_state.get("rule_set",[]))
         market_signals[mk]["price"]=raw_data[mk]["price"]
         market_signals[mk]["chg"]=raw_data[mk]["chg"]
     fg_val,fg_label=fetch_fear_greed(); diag=run_diagnostics(market_signals,fg_val)
 
 apex_status=check_apex_limits()
 sm_score,sm_label,sm_sessions=smart_money_clock()
+
 liq_per_market={mk:compute_liquidity_zones(raw_data[mk]["closes"]) for mk in SEL}
-ks_per_market={mk:ks_regime_shift(raw_data[mk]["closes"]) for mk in SEL}
 flow_per_market={mk:(fetch_order_flow(mk) if mk in CRYPTO_MAP
                      else {"ok":False,"flow_ratio":0.5,"flow_score":0,"buy_vol":0,"sell_vol":0,"momentum":False,"verdict":"N/A","price_chg_pct":0})
                  for mk in SEL}
-rb_per_market={mk:find_rejection_blocks(raw_data[mk]["closes"]) for mk in SEL}
-sweep_per_market={mk:find_liquidity_sweeps(raw_data[mk]["closes"]) for mk in SEL}
+rb_per_market={mk:find_rejection_blocks(raw_data[mk]["closes"],raw_data[mk].get("highs"),raw_data[mk].get("lows")) for mk in SEL}
+sweep_per_market={mk:find_liquidity_sweeps(raw_data[mk]["closes"],raw_data[mk].get("highs"),raw_data[mk].get("lows")) for mk in SEL}
 smt_per_market={mk:{"smt":None,"desc":"","smt_score":0,"pair":""} for mk in SEL}
 for a,b in [("NQ","MNQ"),("MES","MNQ")]:
     if a in SEL and b in SEL:
         res=detect_smt_divergence(raw_data[a]["closes"],raw_data[b]["closes"],a,b)
         if res.get("smt"): smt_per_market[a]=res; smt_per_market[b]=res
 
+strategies_per_market={mk:compute_all_strategies(
+    raw_data[mk]["closes"],raw_data[mk].get("highs"),raw_data[mk].get("lows"),raw_data[mk].get("opens")) for mk in SEL}
+
 tqs_per_market={mk:compute_tqs(market_signals[mk],sm_score,
     liq_info=liq_per_market[mk],flow_info=flow_per_market[mk],
     rb_info=rb_per_market[mk],sweep_info=sweep_per_market[mk],
-    smt_info=smt_per_market[mk]) for mk in SEL}
+    smt_info=smt_per_market[mk],strategy_info=strategies_per_market[mk]) for mk in SEL}
 council_per_market={mk:council_vote(TRADERS,market_signals[mk]) for mk in SEL}
 for tr in TRADERS: simulate_trader(tr,market_signals)
 
@@ -1522,25 +1664,31 @@ if fit_ctr%3==0:
     for tr in TRADERS: update_trader_fitness(tr,{mk:raw_data[mk]["closes"] for mk in SEL})
 
 sessions_now=get_sessions(); session_names=[s for s,_ in sessions_now]
-generate_notes(market_signals,session_names); generate_whisper(market_signals)
+generate_notes(market_signals,session_names,strategies_per_market)
+generate_whisper(market_signals)
 
 now_ts=time.time()
 if (now_ts-st.session_state["last_refresh"])>=st.session_state["refresh_interval"]:
     st.session_state["last_refresh"]=now_ts
     for mk,sig in market_signals.items():
         if sig.get("signal")!="HOLD" and sig.get("conf",0)>=55:
-            div=sig.get("divergence",{})
+            div=sig.get("divergence",{}); st_i=strategies_per_market.get(mk,{})
+            sl_fp,tp_fp=proxy_to_futures_stop_target(mk,sig.get("stop"),sig.get("target"))
             st.session_state["signal_feed"].insert(0,{
                 "time":datetime.now().strftime("%H:%M:%S"),"mk":mk,
-                "signal":sig["signal"],"conf":sig["conf"],"price":sig["price"],
-                "stop":sig.get("stop"),"target":sig.get("target"),
+                "signal":sig["signal"],"conf":sig["conf"],
+                "price_proxy":sig["price"],"price_futures":fmt_futures(mk,sig["price"]),
+                "sl_futures":f"{fmt_futures(mk,sig['stop'])}" if sig.get("stop") else "--",
+                "tp_futures":f"{fmt_futures(mk,sig['target'])}" if sig.get("target") else "--",
                 "reasons":sig.get("reasons",[])[:2],"patterns":sig.get("patterns",[])[:2],
                 "regime":sig.get("regime",{}).get("regime","?"),
                 "div_bull":div.get("bull_div",False),"div_bear":div.get("bear_div",False),
                 "macd_bull":div.get("macd_bull",False),"macd_bear":div.get("macd_bear",False),
                 "tqs":tqs_per_market.get(mk,0),
                 "contract_size":MARKETS[mk]["contract_size"],
-                "apex_note":MARKETS[mk]["apex_note"]})
+                "strategies":st_i.get("active_signals",[])[:2],
+                "orb_type":st_i.get("orb",{}).get("type",""),
+                "gap_type":st_i.get("gap",{}).get("type",""),})
     st.session_state["signal_feed"]=st.session_state["signal_feed"][:80]
     st.session_state["diag_history"].append({"time":datetime.now(),"score":diag["overall"]})
     st.session_state["diag_history"]=st.session_state["diag_history"][-200:]
@@ -1553,30 +1701,32 @@ sm_color="#1aff8a" if sm_score>=75 else "#c9a84c" if sm_score>=50 else "#5a5570"
 # MASTHEAD
 # ==============================================================
 utc=datetime.now(ZoneInfo("UTC"))
-ny=utc.astimezone(ZoneInfo("America/New_York"))
-lon=utc.astimezone(ZoneInfo("Europe/London"))
+ny=utc.astimezone(ZoneInfo("America/New_York")); lon=utc.astimezone(ZoneInfo("Europe/London"))
 session_badges="".join(f'<span style="display:inline-block;padding:3px 10px;font-family:Cinzel,serif;font-size:10px;font-weight:700;letter-spacing:.1em;margin-right:6px;background:{c}22;color:{c};border:1px solid {c}44;">{n}</span>' for n,c in sessions_now)
+now_et=datetime.now(ZoneInfo("America/New_York"))
+orb_8am = now_et.hour==8 or (now_et.hour==7 and now_et.minute>=45)
+orb_930 = (now_et.hour==9 and now_et.minute>=30) or (now_et.hour==10 and now_et.minute<=30)
+orb_indicator = ""
+if orb_8am: orb_indicator='<span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#a855f7;font-weight:700;margin-left:12px;">8AM ORB WINDOW</span>'
+elif orb_930: orb_indicator='<span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#a855f7;font-weight:700;margin-left:12px;">9:30AM RTH ORB ACTIVE</span>'
 st.markdown(f"""
 <div class="nigel-masthead">
   <div>
     <div class="nigel-wordmark">NIG<em>E</em>L</div>
-    <div class="nigel-tagline">Apex NinjaTrader v5.4 - NQ - CL - GC - MNQ - MES - MBT - $50K Account</div>
+    <div class="nigel-tagline">Apex NinjaTrader v5.5 - ORB + Gap and Go + First Pullback + PDH/PDL</div>
   </div>
   <div style="text-align:right;">
-    <div style="font-family:JetBrains Mono,monospace;font-size:11px;color:#5a5570;">ET {ny.strftime("%H:%M")} | LDN {lon.strftime("%H:%M")} | UTC {utc.strftime("%H:%M")}</div>
+    <div style="font-family:JetBrains Mono,monospace;font-size:11px;color:#5a5570;">ET {ny.strftime("%H:%M")} | LDN {lon.strftime("%H:%M")} | UTC {utc.strftime("%H:%M")}{orb_indicator}</div>
     <div style="margin-top:6px;">{session_badges}</div>
     <div style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:12px;color:#5a5570;margin-top:4px;">{SESSION_TIPS.get(sessions_now[0][0],"")}</div>
   </div>
 </div>
 """, unsafe_allow_html=True)
 
-if apex_status["locked"]:
-    st.markdown(f'<div class="shield-banner">APEX LOCK ACTIVE - {apex_status["lock_reason"]}</div>', unsafe_allow_html=True)
+if apex_status["locked"]: st.markdown(f'<div class="shield-banner">APEX LOCK ACTIVE - {apex_status["lock_reason"]}</div>', unsafe_allow_html=True)
 elif apex_status["warnings"]:
-    for w in apex_status["warnings"]:
-        st.markdown(f'<div class="apex-banner">{w}</div>', unsafe_allow_html=True)
-elif apex_status["target_reached"]:
-    st.markdown('<div class="apex-clear">EVALUATION TARGET REACHED - $3,000 profit achieved.</div>', unsafe_allow_html=True)
+    for w in apex_status["warnings"]: st.markdown(f'<div class="apex-banner">{_esc(w)}</div>', unsafe_allow_html=True)
+elif apex_status["target_reached"]: st.markdown('<div class="apex-clear">EVALUATION TARGET REACHED - $3,000 profit achieved.</div>', unsafe_allow_html=True)
 
 # TICKER
 def make_ticker():
@@ -1588,13 +1738,18 @@ def make_ticker():
         bc="badge-long" if ("BUY" in d or d=="OVERSOLD") else "badge-short" if ("SELL" in d or d=="OVERBOUGHT") else "badge-hold"
         reg=sig.get("regime",{}).get("regime",""); rc="badge-regime-trend" if reg=="TRENDING" else "badge-regime-range" if reg=="RANGING" else "badge-regime-vol"
         tqs=tqs_per_market.get(mk,0); tc="#1aff8a" if tqs>=70 else "#c9a84c" if tqs>=45 else "#5a5570"
-        items.append(f'<span class="tick-item"><span class="tick-sym">{mk}</span><span class="tick-px">{fmt_price(mk,p)}</span><span class="{cc}">{arrow} {abs(chg):.2f}%</span><span class="badge {bc}" style="font-size:9px;padding:1px 6px;">{d}</span><span class="badge {rc}">{reg[:3]}</span><span style="font-family:JetBrains Mono,monospace;font-size:9px;color:{tc};">TQS {tqs}</span><span class="tick-sep">|</span></span>')
+        fp=fmt_futures(mk,p)
+        st_i=strategies_per_market.get(mk,{}); orb=st_i.get("orb",{})
+        orb_str=""
+        if orb.get("orb_signal") in ("LONG","SHORT"):
+            orb_str=f'<span style="font-family:JetBrains Mono,monospace;font-size:8px;color:#a855f7;margin-left:3px;">ORB</span>'
+        items.append(f'<span class="tick-item"><span class="tick-sym">{mk}</span><span class="tick-px">{fp}</span><span class="{cc}">{arrow} {abs(chg):.2f}%</span><span class="badge {bc}" style="font-size:9px;padding:1px 6px;">{d}</span><span class="badge {rc}">{reg[:3]}</span><span style="font-family:JetBrains Mono,monospace;font-size:9px;color:{tc};">TQS {tqs}</span>{orb_str}<span class="tick-sep">|</span></span>')
     inner="".join(items)*3
     return f'<div class="ticker-wrap"><div class="ticker-track">{inner}</div></div>'
 
 st.markdown(make_ticker(),unsafe_allow_html=True)
 
-# HEADER STATS
+# HEADER
 health=diag["overall"]; hc="#1aff8a" if health>=70 else "#c9a84c" if health>=45 else "#ff2d55"
 apex_eq=apex_status["apex_equity"]; aeq_c="#1aff8a" if apex_status["cumulative_pnl"]>=0 else "#ff2d55"
 td_color="#ff2d55" if apex_status["trailing_dd_pct"]>70 else "#c9a84c" if apex_status["trailing_dd_pct"]>40 else "#1aff8a"
@@ -1604,9 +1759,9 @@ with hcols[2]: st.markdown(f'<div style="text-align:center;padding:8px 0;"><div 
 with hcols[3]: st.markdown(f'<div style="text-align:center;padding:8px 0;"><div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.1em;color:#5a5570;">APEX EQUITY</div><div style="font-family:Cinzel,serif;font-size:2rem;font-weight:900;color:{aeq_c};">${apex_eq:,.0f}</div><div style="font-size:10px;color:#5a5570;">today {apex_status["daily_pnl"]:+,.0f}</div></div>', unsafe_allow_html=True)
 with hcols[4]: st.markdown(f'<div style="text-align:center;padding:8px 0;"><div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.1em;color:#5a5570;">TRAIL DD</div><div style="font-family:Cinzel,serif;font-size:2rem;font-weight:900;color:{td_color};">${apex_status["trailing_dd"]:,.0f}</div><div style="font-size:10px;color:#5a5570;">/ $2,500</div></div>', unsafe_allow_html=True)
 with hcols[5]: st.markdown(f'<div style="text-align:center;padding:8px 0;"><div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.1em;color:#5a5570;">TO TARGET</div><div style="font-family:Cinzel,serif;font-size:2rem;font-weight:900;color:#c9a84c;">${max(0,3000-apex_status["cumulative_pnl"]):,.0f}</div><div style="font-size:10px;color:#5a5570;">{apex_status["pct_to_target"]:.0f}% done</div></div>', unsafe_allow_html=True)
-st.markdown(f'<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.1em;color:#5a5570;margin-bottom:10px;"><span class="live-dot"></span>LIVE - APEX $50K NINJATRADER - {"CLAUDE ON" if CLKEY else "FALLBACK"}</div>', unsafe_allow_html=True)
+st.markdown(f'<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.1em;color:#5a5570;margin-bottom:10px;"><span class="live-dot"></span>LIVE - APEX $50K NT - {"CLAUDE ON" if CLKEY else "FALLBACK"}</div>', unsafe_allow_html=True)
 
-# SIGNAL CARDS
+# SIGNAL CARDS - with correct futures prices and strategy badges
 sig_cols=st.columns(len(SEL))
 for col,mk in zip(sig_cols,SEL):
     with col:
@@ -1619,16 +1774,37 @@ for col,mk in zip(sig_cols,SEL):
         reg=sig.get("regime",{}); rn=reg.get("regime","?")
         rc="badge-regime-trend" if rn=="TRENDING" else "badge-regime-range" if rn=="RANGING" else "badge-regime-vol"
         div=sig.get("divergence",{}); div_html=""
-        if div.get("bull_div"): div_html+=f'<div class="divergence-bull">{div.get("desc","")}</div>'
-        if div.get("bear_div"): div_html+=f'<div class="divergence-bear">{div.get("desc","")}</div>'
-        if div.get("macd_bull"): div_html+=f'<div class="macd-bull">{div.get("macd_desc","")}</div>'
-        if div.get("macd_bear"): div_html+=f'<div class="macd-bear">{div.get("macd_desc","")}</div>'
-        pats=sig.get("patterns",[]); pats_html="".join(f'<span class="pattern-tag">{p2}</span>' for p2 in pats[:2])
+        if div.get("bull_div"): div_html+=f'<div class="divergence-bull">{_esc(div.get("desc",""))}</div>'
+        if div.get("bear_div"): div_html+=f'<div class="divergence-bear">{_esc(div.get("desc",""))}</div>'
+        if div.get("macd_bull"): div_html+=f'<div class="macd-bull">{_esc(div.get("macd_desc",""))}</div>'
+        if div.get("macd_bear"): div_html+=f'<div class="macd-bear">{_esc(div.get("macd_desc",""))}</div>'
+        st_i=strategies_per_market.get(mk,{})
+        orb=st_i.get("orb",{}); pdhl=st_i.get("pdhl",{}); gap=st_i.get("gap",{})
+        pull=st_i.get("pullback",{}); vwap=st_i.get("vwap",{})
+        strategy_html=""
+        if orb.get("orb_signal") in ("LONG","SHORT"):
+            sc="var(--violet)" if orb["orb_signal"]=="LONG" else "var(--crimson)"
+            strategy_html+=f'<div class="orb-bull" style="color:{sc};">{_esc(orb["type"])} {orb.get("breakout_pct",0):.1f}%</div>'
+        if pdhl.get("signal") in ("LONG","SHORT"):
+            pc="var(--emerald)" if pdhl["signal"]=="LONG" else "var(--crimson)"
+            strategy_html+=f'<div style="background:rgba(201,168,76,0.04);border:1px solid rgba(201,168,76,0.15);border-radius:1px;padding:4px 9px;font-family:JetBrains Mono,monospace;font-size:10px;color:{pc};margin-top:3px;">{_esc(pdhl["type"])} PDH={fmt_futures(mk,pdhl.get("pdh",0))} PDL={fmt_futures(mk,pdhl.get("pdl",0))}</div>'
+        if gap.get("gap") in ("LONG","SHORT","FADE_LONG","FADE_SHORT"):
+            gc2="var(--emerald)" if "LONG" in str(gap.get("gap","")) else "var(--crimson)"
+            strategy_html+=f'<div style="background:rgba(0,196,255,0.04);border:1px solid rgba(0,196,255,0.15);border-radius:1px;padding:4px 9px;font-family:JetBrains Mono,monospace;font-size:10px;color:var(--sapphire);margin-top:3px;">{_esc(gap["type"])} {gap.get("gap_pct",0):+.2f}%</div>'
+        if pull.get("pullback") in ("LONG","SHORT"):
+            pc2="var(--emerald)" if pull["pullback"]=="LONG" else "var(--crimson)"
+            strategy_html+=f'<div style="background:rgba(168,85,247,0.04);border:1px solid rgba(168,85,247,0.15);border-radius:1px;padding:4px 9px;font-family:JetBrains Mono,monospace;font-size:10px;color:{pc2};margin-top:3px;">{_esc(pull["type"])} EMA8={fmt_futures(mk,pull.get("ema8",0))}</div>'
+        if vwap.get("vwap_signal") in ("LONG","SHORT"):
+            vc2="var(--emerald)" if vwap["vwap_signal"]=="LONG" else "var(--crimson)"
+            strategy_html+=f'<div style="background:rgba(0,196,255,0.04);border:1px solid rgba(0,196,255,0.12);border-radius:1px;padding:4px 9px;font-family:JetBrains Mono,monospace;font-size:10px;color:{vc2};margin-top:3px;">{_esc(vwap["type"])} VWAP={fmt_futures(mk,vwap.get("vwap",0))}</div>'
+        pats=sig.get("patterns",[]); pats_html="".join(f'<span class="pattern-tag">{_esc(p2)}</span>' for p2 in pats[:2])
         tqs=tqs_per_market.get(mk,0); tqs_c="#1aff8a" if tqs>=70 else "#c9a84c" if tqs>=45 else "#ff2d55"
-        cv=council_per_market[mk]; vc="#1aff8a" if cv["verdict"]=="LONG" else "#ff2d55" if cv["verdict"]=="SHORT" else "#5a5570"
+        cv=council_per_market[mk]; vc3="#1aff8a" if cv["verdict"]=="LONG" else "#ff2d55" if cv["verdict"]=="SHORT" else "#5a5570"
         mc_color="#1aff8a" if is_b else "#ff2d55" if is_s else "#c9a84c"
-        sfmt=f'${sig["stop"]:,.2f}' if sig.get("stop") else "--"
-        tfmt=f'${sig["target"]:,.2f}' if sig.get("target") else "--"
+        fp=fmt_futures(mk,p)
+        sl_fp,tp_fp=proxy_to_futures_stop_target(mk,sig.get("stop"),sig.get("target"))
+        sfmt=f'{fmt_futures(mk,sig["stop"])}' if sig.get("stop") else "--"
+        tfmt=f'{fmt_futures(mk,sig["target"])}' if sig.get("target") else "--"
         st.markdown(f"""
         <div class="signal-card {card_cls}">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
@@ -1643,11 +1819,11 @@ for col,mk in zip(sig_cols,SEL):
               <span class="badge {badge_cls}">{s}</span>
             </div>
           </div>
-          <div class="sc-price">{fmt_price(mk,p)}</div>
-          <div class="{chg_cls}" style="margin:2px 0 8px;">{"UP" if chg>=0 else "DN"} {abs(chg):.2f}%</div>
+          <div class="sc-price">{fp}</div>
+          <div class="{chg_cls}" style="margin:2px 0 6px;">{"UP" if chg>=0 else "DN"} {abs(chg):.2f}%</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;margin:6px 0;padding:7px;background:#0d0c16;border-radius:1px;">
             <div style="text-align:center;"><div style="font-family:Cinzel,serif;font-size:1.3rem;font-weight:900;color:{tqs_c};">{tqs}</div><div style="font-family:Cinzel,serif;font-size:7px;color:#5a5570;">TQS</div></div>
-            <div style="text-align:center;"><div style="font-family:Cinzel,serif;font-size:.85rem;font-weight:900;color:{vc};">{cv["verdict"]}</div><div style="font-family:Cinzel,serif;font-size:7px;color:#5a5570;">COUNCIL</div></div>
+            <div style="text-align:center;"><div style="font-family:Cinzel,serif;font-size:.85rem;font-weight:900;color:{vc3};">{cv["verdict"]}</div><div style="font-family:Cinzel,serif;font-size:7px;color:#5a5570;">COUNCIL</div></div>
           </div>
           <div class="meter-track"><div class="meter-fill" style="width:{conf}%;background:{mc_color};"></div></div>
           <div style="font-family:JetBrains Mono,monospace;font-size:10px;color:#5a5570;margin-top:2px;">CONF {conf}%</div>
@@ -1658,29 +1834,30 @@ for col,mk in zip(sig_cols,SEL):
             <div style="color:#1aff8a;">TP {tfmt}</div>
           </div>
           {div_html}
+          {strategy_html}
           <div style="margin-top:5px;">{pats_html}</div>
         </div>""", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 if st.session_state["whisper_feed"]:
     w=st.session_state["whisper_feed"][0]
-    st.markdown(f'<div class="whisper-note">{w["text"]}<span style="float:right;font-family:JetBrains Mono,monospace;font-size:9px;color:#3a3550;">{w["time"]}</span></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="whisper-note">{_esc(w["text"])}<span style="float:right;font-family:JetBrains Mono,monospace;font-size:9px;color:#3a3550;">{w["time"]}</span></div>', unsafe_allow_html=True)
 
 # ==============================================================
 # TABS
 # ==============================================================
-t0,t1,t2,t3,t4,t5,t6,t7,t8=st.tabs([
-    "APEX DESK","PULSE","INTELLIGENCE","TRADERS",
-    "SIGNAL FEED","LIVE CHARTS","RULES ENGINE","BACKTEST","AI ANALYST",
+t0,t1,t2,t3,t4,t5,t6,t7,t8,t9=st.tabs([
+    "APEX DESK","STRATEGIES","PULSE","INTELLIGENCE",
+    "TRADERS","SIGNAL FEED","LIVE CHARTS","RULES ENGINE","BACKTEST","AI ANALYST",
 ])
 
 # ==============================================================
 # TAB 0 - APEX DESK
 # ==============================================================
 with t0:
-    st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.15em;color:#ff9500;margin-bottom:8px;">APEX TRADER FUNDING - $50K NINJATRADER ACCOUNT</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.15em;color:#ff9500;margin-bottom:8px;">APEX TRADER FUNDING - $50K NINJATRADER</div>', unsafe_allow_html=True)
     if apex_status["locked"]: status_color="#ff2d55"; status_text="LOCKED"; status_sub=apex_status["lock_reason"]
-    elif apex_status["target_reached"]: status_color="#1aff8a"; status_text="TARGET HIT"; status_sub="$3,000 profit achieved - evaluation passed"
+    elif apex_status["target_reached"]: status_color="#1aff8a"; status_text="TARGET HIT"; status_sub="$3,000 profit achieved"
     elif apex_status["warnings"]: status_color="#ff9500"; status_text="WARNING"; status_sub=apex_status["warnings"][0]
     else: status_color="#1aff8a"; status_text="CLEAR"; status_sub="All limits healthy - trade with discipline"
     a0c1,a0c2=st.columns([2,3])
@@ -1689,7 +1866,7 @@ with t0:
         <div class="panel" style="border-top:3px solid {status_color};text-align:center;padding:28px 18px;">
           <div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.15em;color:#5a5570;margin-bottom:10px;">ACCOUNT STATUS</div>
           <div style="font-family:Cinzel,serif;font-size:2.8rem;font-weight:900;color:{status_color};line-height:1;">{status_text}</div>
-          <div style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:13px;color:#5a5570;margin-top:8px;">{status_sub}</div>
+          <div style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:13px;color:#5a5570;margin-top:8px;">{_esc(status_sub)}</div>
           <hr>
           <div style="font-family:JetBrains Mono,monospace;font-size:11px;line-height:2;text-align:left;">
             <div><span style="color:#5a5570;">Equity:</span> <span style="color:#fff;">${apex_status["apex_equity"]:,.2f}</span></div>
@@ -1700,7 +1877,6 @@ with t0:
           </div>
         </div>""", unsafe_allow_html=True)
     with a0c2:
-        st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.12em;color:#ff9500;margin-bottom:10px;">LIMIT GAUGES</div>', unsafe_allow_html=True)
         dl_pct=apex_status["daily_loss_pct"]; dl_color="#ff2d55" if dl_pct>=100 else "#ff9500" if dl_pct>=70 else "#1aff8a"
         dl_used=abs(min(0,apex_status["daily_pnl"])); dl_left=APEX_CONFIG["daily_loss_limit"]-dl_used
         st.markdown(f"""<div class="panel" style="margin-bottom:10px;border-left:2px solid {dl_color};">
@@ -1742,79 +1918,126 @@ with t0:
           <div style="font-family:JetBrains Mono,monospace;font-size:10px;color:#5a5570;margin-top:3px;">{"Minimum met" if td_days>=td_need else f"{td_need-td_days} more unique days needed"}</div>
         </div>""", unsafe_allow_html=True)
 
-    st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.12em;color:#ff9500;margin:22px 0 10px;">CONTRACT REFERENCE - HOW MUCH EACH CONTRACT MOVES</div>', unsafe_allow_html=True)
-    contract_rows=[]
+    st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.12em;color:#ff9500;margin:22px 0 10px;">CORRECT FUTURES PRICES</div>', unsafe_allow_html=True)
+    price_rows=[]
     for mk in SEL:
         sig=market_signals[mk]; m=MARKETS[mk]; cv=council_per_market[mk]; tqs=tqs_per_market[mk]
-        contract_rows.append({
-            "Contract":mk,"Name":m["label"],"Signal":sig.get("signal","HOLD"),
-            "TQS":tqs,"Council":cv["verdict"],"Price":fmt_price(mk,sig.get("price",0)),
-            "Size":m["contract_size"],"Tick":m["tick_size"],
-            "For $1K/day":m["apex_note"].split("-")[0].strip(),
+        proxy_p=sig.get("price",0); futures_p=fmt_futures(mk,proxy_p)
+        sl_f=fmt_futures(mk,sig.get("stop",0)) if sig.get("stop") else "--"
+        tp_f=fmt_futures(mk,sig.get("target",0)) if sig.get("target") else "--"
+        price_rows.append({
+            "Contract":mk,"Name":m["label"],"Futures Price":futures_p,
+            "Signal":sig.get("signal","HOLD"),"TQS":tqs,"Council":cv["verdict"],
+            "SL (futures)":sl_f,"TP (futures)":tp_f,
+            "Size":m["contract_size"],"Scale":f"x{m['scale']:.0f}",
         })
-    st.dataframe(pd.DataFrame(contract_rows),use_container_width=True,hide_index=True)
-
-    st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.12em;color:#ff9500;margin:18px 0 10px;">$1,000 DAY TARGET CALCULATOR</div>', unsafe_allow_html=True)
-    calc_cols=st.columns(3)
-    with calc_cols[0]:
-        st.markdown("""<div class="target-box">
-          <div style="font-family:Cinzel,serif;font-size:9px;color:#1aff8a;letter-spacing:.1em;margin-bottom:6px;">NQ - E-MINI NASDAQ</div>
-          <div style="font-family:JetBrains Mono,monospace;font-size:10px;line-height:1.8;color:#d4cfc0;">
-            1 contract = $20/point<br>
-            50 point move = $1,000<br>
-            Daily range: 150-400 pts<br>
-            Typical stop: 20pts = $400<br>
-            Best time: 9:30-11am ET
-          </div>
-        </div>""", unsafe_allow_html=True)
-    with calc_cols[1]:
-        st.markdown("""<div class="target-box">
-          <div style="font-family:Cinzel,serif;font-size:9px;color:#FF6644;letter-spacing:.1em;margin-bottom:6px;">CL - CRUDE OIL</div>
-          <div style="font-family:JetBrains Mono,monospace;font-size:10px;line-height:1.8;color:#d4cfc0;">
-            1 contract = $1,000 per $1<br>
-            $1.00 move = $1,000<br>
-            Daily range: $1-3 typical<br>
-            Typical stop: $0.40 = $400<br>
-            Best: Wed 10:30am inventory
-          </div>
-        </div>""", unsafe_allow_html=True)
-    with calc_cols[2]:
-        st.markdown("""<div class="target-box">
-          <div style="font-family:Cinzel,serif;font-size:9px;color:#c9a84c;letter-spacing:.1em;margin-bottom:6px;">GC - GOLD</div>
-          <div style="font-family:JetBrains Mono,monospace;font-size:10px;line-height:1.8;color:#d4cfc0;">
-            1 contract = $100 per $1<br>
-            $10 move = $1,000<br>
-            Daily range: $15-40 typical<br>
-            Typical stop: $5 = $500<br>
-            Best: London open + NY open
-          </div>
-        </div>""", unsafe_allow_html=True)
-
+    st.dataframe(pd.DataFrame(price_rows),use_container_width=True,hide_index=True)
     daily_hist=st.session_state.get("apex_daily_history",[])
     if len(daily_hist)>=2:
-        st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.12em;color:#ff9500;margin:20px 0 10px;">DAILY P&L HISTORY</div>', unsafe_allow_html=True)
         dh_df=pd.DataFrame(daily_hist); bar_c=["#1aff8a" if p>=0 else "#ff2d55" for p in dh_df["pnl"]]
         fig_dh=go.Figure(go.Bar(x=dh_df["date"],y=dh_df["pnl"],marker=dict(color=bar_c,opacity=0.8),
-            text=[f"${p:+,.0f}" for p in dh_df["pnl"]],textposition="outside",
-            textfont=dict(family="JetBrains Mono",size=10,color="#d4cfc0")))
+            text=[f"${p:+,.0f}" for p in dh_df["pnl"]],textposition="outside",textfont=dict(family="JetBrains Mono",size=10,color="#d4cfc0")))
         fig_dh.add_hline(y=1000,line=dict(color="#1aff8a",width=1,dash="dash"),annotation_text="$1K Target")
         fig_dh.add_hline(y=-APEX_CONFIG["daily_loss_limit"],line=dict(color="#ff2d55",width=1,dash="dash"),annotation_text="Daily Limit")
-        fig_dh.update_layout(height=240,template="plotly_dark",paper_bgcolor="#05040a",plot_bgcolor="#09080f",
-            margin=dict(l=0,r=0,t=10,b=0),showlegend=False,
-            xaxis=dict(gridcolor="#12101e"),yaxis=dict(gridcolor="#12101e"),
+        fig_dh.update_layout(height=220,template="plotly_dark",paper_bgcolor="#05040a",plot_bgcolor="#09080f",
+            margin=dict(l=0,r=0,t=10,b=0),showlegend=False,xaxis=dict(gridcolor="#12101e"),yaxis=dict(gridcolor="#12101e"),
             font=dict(family="JetBrains Mono",size=10,color="#5a5570"))
         st.plotly_chart(fig_dh,use_container_width=True,key="apex_daily_chart")
 
 # ==============================================================
-# TAB 1 - PULSE
+# TAB 1 - STRATEGIES
 # ==============================================================
 with t1:
+    st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.15em;color:#a855f7;margin-bottom:4px;">STRATEGY SCANNER - ORB + GAP AND GO + FIRST PULLBACK + PDH/PDL + VWAP</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:13px;color:#5a5570;margin-bottom:18px;">All strategies run on daily price data. ORB identifies range breakouts. First Pullback finds EMA8 bounces. PDH/PDL shows key levels in actual futures prices.</div>', unsafe_allow_html=True)
+
+    for mk in SEL:
+        st_i=strategies_per_market.get(mk,{}); m=MARKETS[mk]
+        orb=st_i.get("orb",{}); pdhl=st_i.get("pdhl",{}); gap=st_i.get("gap",{})
+        pull=st_i.get("pullback",{}); vwap=st_i.get("vwap",{}); active=st_i.get("active_signals",[])
+        dv=st_i.get("direction_votes",{"LONG":0,"SHORT":0}); ss=st_i.get("strategy_score",0)
+        overall_dir="LONG" if dv.get("LONG",0)>dv.get("SHORT",0) else "SHORT" if dv.get("SHORT",0)>dv.get("LONG",0) else "NEUTRAL"
+        dir_color="#1aff8a" if overall_dir=="LONG" else "#ff2d55" if overall_dir=="SHORT" else "#5a5570"
+        with st.expander(f"{mk} - {m['label']} - Strategy Score: {ss}/40 - Direction: {overall_dir}", expanded=(ss>=20)):
+            sc1,sc2,sc3=st.columns(3)
+            with sc1:
+                orb_s=orb.get("orb_signal",""); orb_c="#a855f7" if orb_s in ("LONG","SHORT") else "#5a5570"
+                rh=fmt_futures(mk,orb.get("range_high",0)) if orb.get("range_high") else "--"
+                rl=fmt_futures(mk,orb.get("range_low",0)) if orb.get("range_low") else "--"
+                st.markdown(f"""
+                <div class="strategy-card {"strategy-active-bull" if orb_s=="LONG" else "strategy-active-bear" if orb_s=="SHORT" else "strategy-inactive"}">
+                  <div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.12em;color:#a855f7;margin-bottom:6px;">OPENING RANGE BREAKOUT</div>
+                  <div style="font-family:Cinzel,serif;font-size:1.2rem;font-weight:900;color:{orb_c};">{_esc(orb.get("type","NO SIGNAL"))}</div>
+                  <div style="font-family:JetBrains Mono,monospace;font-size:10px;line-height:1.8;margin-top:8px;color:#5a5570;">
+                    <div>Range High: <span style="color:#1aff8a;">{rh}</span></div>
+                    <div>Range Low: <span style="color:#ff2d55;">{rl}</span></div>
+                    <div>Breakout: <span style="color:#fff;">{orb.get("breakout_pct",0):.1f}%</span></div>
+                    <div>Score: <span style="color:#c9a84c;">+{orb.get("score",0)}</span></div>
+                  </div>
+                  <div style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:12px;color:#5a5570;margin-top:8px;">
+                    8am ORB: watch 8:00-8:30am ET range. 9:30am ORB: watch first 30min after RTH open.
+                  </div>
+                </div>""", unsafe_allow_html=True)
+            with sc2:
+                pdh_f=fmt_futures(mk,pdhl.get("pdh",0)) if pdhl.get("pdh") else "--"
+                pdl_f=fmt_futures(mk,pdhl.get("pdl",0)) if pdhl.get("pdl") else "--"
+                pdh_s=pdhl.get("signal","")
+                pdh_c="#1aff8a" if pdh_s=="LONG" else "#ff2d55" if pdh_s=="SHORT" else "#5a5570"
+                pull_c="#1aff8a" if pull.get("pullback")=="LONG" else "#ff2d55" if pull.get("pullback")=="SHORT" else "#5a5570"
+                gap_c="#1aff8a" if "LONG" in str(gap.get("gap","")) else "#ff2d55" if "SHORT" in str(gap.get("gap","")) else "#5a5570"
+                st.markdown(f"""
+                <div class="strategy-card {"strategy-active-bull" if pdh_s=="LONG" else "strategy-active-bear" if pdh_s=="SHORT" else "strategy-inactive"}">
+                  <div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.12em;color:#c9a84c;margin-bottom:6px;">PDH/PDL + GAP AND GO</div>
+                  <div style="font-family:Cinzel,serif;font-size:1rem;font-weight:900;color:{pdh_c};">{_esc(pdhl.get("type","INSIDE RANGE"))}</div>
+                  <div style="font-family:JetBrains Mono,monospace;font-size:10px;line-height:1.8;margin-top:8px;color:#5a5570;">
+                    <div>PDH: <span style="color:#1aff8a;">{pdh_f}</span></div>
+                    <div>PDL: <span style="color:#ff2d55;">{pdl_f}</span></div>
+                  </div>
+                  <hr>
+                  <div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.1em;color:var(--sapphire);margin:6px 0 4px;">GAP AND GO</div>
+                  <div style="font-family:Cinzel,serif;font-size:.95rem;font-weight:900;color:{gap_c};">{_esc(gap.get("type","NO GAP"))}</div>
+                  <div style="font-family:JetBrains Mono,monospace;font-size:10px;color:#5a5570;margin-top:4px;">Gap: {gap.get("gap_pct",0):+.2f}% Score: +{gap.get("score",0)}</div>
+                </div>""", unsafe_allow_html=True)
+            with sc3:
+                ema8_f=fmt_futures(mk,pull.get("ema8",0)) if pull.get("ema8") else "--"
+                vwap_f=fmt_futures(mk,vwap.get("vwap",0)) if vwap.get("vwap") else "--"
+                pull_dir=pull.get("pullback",""); pull_c="#1aff8a" if pull_dir=="LONG" else "#ff2d55" if pull_dir=="SHORT" else "#5a5570"
+                vwap_dir=vwap.get("vwap_signal",""); vwap_c="#1aff8a" if vwap_dir=="LONG" else "#ff2d55" if vwap_dir=="SHORT" else "#5a5570"
+                st.markdown(f"""
+                <div class="strategy-card {"strategy-active-bull" if pull_dir=="LONG" else "strategy-active-bear" if pull_dir=="SHORT" else "strategy-inactive"}">
+                  <div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.12em;color:#a855f7;margin-bottom:6px;">FIRST PULLBACK + VWAP</div>
+                  <div style="font-family:Cinzel,serif;font-size:.95rem;font-weight:900;color:{pull_c};">{_esc(pull.get("type","NO SETUP"))}</div>
+                  <div style="font-family:JetBrains Mono,monospace;font-size:10px;line-height:1.8;margin-top:6px;color:#5a5570;">
+                    <div>EMA8: <span style="color:#c9a84c;">{ema8_f}</span></div>
+                    <div>Score: <span style="color:#c9a84c;">+{pull.get("score",0)}</span></div>
+                  </div>
+                  <hr>
+                  <div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.1em;color:var(--sapphire);margin:6px 0 4px;">VWAP PROXY (EMA20)</div>
+                  <div style="font-family:Cinzel,serif;font-size:.95rem;font-weight:900;color:{vwap_c};">{_esc(vwap.get("type","AT VWAP"))}</div>
+                  <div style="font-family:JetBrains Mono,monospace;font-size:10px;color:#5a5570;margin-top:4px;">VWAP: {vwap_f} Score: +{vwap.get("score",0)}</div>
+                </div>""", unsafe_allow_html=True)
+
+    st.markdown("""
+    <div style="background:#0d0c16;border:1px solid #12101e;border-left:2px solid #a855f7;border-radius:1px;padding:16px 20px;margin-top:16px;font-family:Cormorant Garamond,serif;font-size:13px;line-height:1.8;color:#5a5570;">
+    <div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.15em;color:#a855f7;margin-bottom:10px;">HOW TO USE THESE STRATEGIES IN NINJATRADER</div>
+    <b style="color:#c9a84c;">8am ORB:</b> At 8:00am ET note the high and low. At 8:30am, if price breaks above the 8am high buy with stop below the 8am low. If breaks below the 8am low sell short with stop above the 8am high.<br><br>
+    <b style="color:#c9a84c;">9:30am RTH ORB:</b> Same concept at RTH open. Note 9:30-10:00am range. Trade the breakout direction with a 2:1 minimum target. NQ needs 50pt move for $1K on 1 contract.<br><br>
+    <b style="color:#c9a84c;">Gap and Go:</b> If NQ gaps up at open AND trend is bullish, buy the first pullback above the gap. Do not chase. If gap fades, consider the opposite direction.<br><br>
+    <b style="color:#c9a84c;">First Pullback:</b> After a strong opening move, wait for price to pull back to EMA8 (shown above). Enter in trend direction on the touch with stop just below EMA8.<br><br>
+    <b style="color:#c9a84c;">PDH/PDL:</b> Previous day high and low are magnets and barriers. Price often runs to PDH or PDL before reversing. Use these levels for targets and stops.
+    </div>""", unsafe_allow_html=True)
+
+# ==============================================================
+# TAB 2 - PULSE
+# ==============================================================
+with t2:
     st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.15em;color:#c9a84c;margin-bottom:8px;">PULSE - LIVE OPPORTUNITY GRID</div>', unsafe_allow_html=True)
     tqs_cols=st.columns(len(SEL)); sorted_mk=sorted(SEL,key=lambda x:tqs_per_market[x],reverse=True)
     for i,(col,mk) in enumerate(zip(tqs_cols,sorted_mk)):
         tqs=tqs_per_market[mk]; sig=market_signals[mk]; cv=council_per_market[mk]
         tc="#1aff8a" if tqs>=70 else "#c9a84c" if tqs>=45 else "#ff2d55" if tqs<30 else "#5a5570"
         vc="#1aff8a" if cv["verdict"]=="LONG" else "#ff2d55" if cv["verdict"]=="SHORT" else "#5a5570"
+        st_i=strategies_per_market.get(mk,{}); active=st_i.get("active_signals",[])
         with col:
             st.markdown(f"""
             <div class="tqs-cell" style="border-top:2px solid {tc};">
@@ -1828,6 +2051,7 @@ with t1:
                 <div>{sig.get("signal","HOLD")} - {sig.get("conf",0)}%</div>
                 <div style="color:{vc};margin-top:2px;font-weight:700;">{cv["verdict"]}</div>
               </div>
+              {"".join(f'<div style="font-family:JetBrains Mono,monospace;font-size:8px;color:#a855f7;margin-top:2px;">{_esc(a)}</div>' for a in active[:2])}
             </div>""", unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
     p1l,p1r=st.columns([3,2])
@@ -1854,82 +2078,66 @@ with t1:
               </div>
             </div>""", unsafe_allow_html=True)
     with p1r:
-        st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.12em;color:#c9a84c;margin-bottom:10px;">TOP SETUP</div>', unsafe_allow_html=True)
-        best_mk=sorted_mk[0]; btqs=tqs_per_market[best_mk]; bsig=market_signals[best_mk]
-        bcv=council_per_market[best_mk]; bm=MARKETS[best_mk]
-        bvc="#1aff8a" if bcv["verdict"]=="LONG" else "#ff2d55" if bcv["verdict"]=="SHORT" else "#5a5570"
-        reasons_html="".join(f'<div style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:12px;color:#5a5570;">- {r}</div>' for r in bsig.get("reasons",[])[:4])
+        best_mk=sorted_mk[0]; btqs=tqs_per_market[best_mk]; bsig=market_signals[best_mk]; bcv=council_per_market[best_mk]; bm=MARKETS[best_mk]
+        bst=strategies_per_market.get(best_mk,{}); bvc="#1aff8a" if bcv["verdict"]=="LONG" else "#ff2d55" if bcv["verdict"]=="SHORT" else "#5a5570"
+        reasons_html="".join(f'<div style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:12px;color:#5a5570;">- {_esc(r)}</div>' for r in bsig.get("reasons",[])[:4])
+        active_strats="".join(f'<div style="font-family:JetBrains Mono,monospace;font-size:9px;color:#a855f7;margin-top:3px;">{_esc(a)}</div>' for a in bst.get("active_signals",[])[:3])
         st.markdown(f"""
         <div class="panel" style="border-top:2px solid {bvc};">
-          <div style="font-family:Cinzel,serif;font-size:9px;color:#5a5570;margin-bottom:6px;">HIGHEST TQS</div>
           <div style="font-family:Cinzel,serif;font-size:2rem;font-weight:900;color:#fff;">{best_mk}</div>
           <div style="font-family:Cormorant Garamond,serif;font-style:italic;color:#5a5570;">{bm['label']}</div>
           <div style="font-family:JetBrains Mono,monospace;font-size:9px;color:#ff9500;margin-bottom:8px;">{bm['apex_note']}</div>
-          <div style="font-family:JetBrains Mono,monospace;font-size:11px;line-height:1.8;margin-top:8px;">
+          <div style="font-family:JetBrains Mono,monospace;font-size:11px;line-height:1.8;">
             <div style="color:#5a5570;">Signal: <span style="color:#fff;">{bsig.get("signal","HOLD")} ({bsig.get("conf",0)}%)</span></div>
-            <div style="color:#5a5570;">Price: <span style="color:#fff;">{fmt_price(best_mk,live_prices[best_mk])}</span></div>
-            <div style="color:#ff2d55;">SL: {f"${bsig.get('stop',0):,.2f}"}</div>
-            <div style="color:#1aff8a;">TP: {f"${bsig.get('target',0):,.2f}"}</div>
+            <div style="color:#5a5570;">Price: <span style="color:#fff;">{fmt_futures_dollar(best_mk,live_prices[best_mk])}</span></div>
+            <div style="color:#ff2d55;">SL: {fmt_futures(best_mk,bsig.get("stop",0)) if bsig.get("stop") else "--"}</div>
+            <div style="color:#1aff8a;">TP: {fmt_futures(best_mk,bsig.get("target",0)) if bsig.get("target") else "--"}</div>
           </div>
+          {active_strats}
           <div style="margin-top:10px;border-top:1px solid #12101e;padding-top:10px;">{reasons_html}</div>
         </div>""", unsafe_allow_html=True)
-    st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.12em;color:#c9a84c;margin:22px 0 10px;">EQUITY RACE</div>', unsafe_allow_html=True)
-    race=sorted([(tr["name"],tr["balance"],tr["balance"]-STARTING_BALANCE) for tr in TRADERS],key=lambda x:x[1],reverse=True)
-    fig_race=go.Figure(go.Bar(x=[p for _,_,p in race],y=[n for n,_,_ in race],orientation="h",
-        marker=dict(color=["#1aff8a" if p>0 else "#ff2d55" for _,_,p in race],opacity=0.8),
-        text=[f"${p:+,.0f}" for _,_,p in race],textposition="outside",
-        textfont=dict(family="JetBrains Mono",size=11,color="#d4cfc0")))
-    fig_race.update_layout(height=220,template="plotly_dark",paper_bgcolor="#05040a",plot_bgcolor="#09080f",
-        margin=dict(l=0,r=60,t=10,b=0),showlegend=False,
-        xaxis=dict(gridcolor="#12101e"),yaxis=dict(gridcolor="#12101e"),
-        font=dict(family="JetBrains Mono",size=10,color="#5a5570"))
-    st.plotly_chart(fig_race,use_container_width=True,key="eq_race")
 
 # ==============================================================
-# TAB 2 - INTELLIGENCE
+# TAB 3 - INTELLIGENCE
 # ==============================================================
-with t2:
+with t3:
     ni1,ni2=st.columns([3,2])
     with ni1:
         st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.15em;color:#c9a84c;margin-bottom:16px;">INTELLIGENCE BRIEF</div>', unsafe_allow_html=True)
         notes=st.session_state["notes"]
         if not notes:
-            st.markdown('<div class="nigel-note note-info"><div class="note-head">AWAITING ANALYSIS</div><div class="note-body">Nigel is observing the futures markets. Notes appear on next data cycle.</div></div>', unsafe_allow_html=True)
+            st.markdown('<div class="nigel-note note-info"><div class="note-head">AWAITING ANALYSIS</div><div class="note-body">Nigel is scanning futures markets for ORB and strategy setups.</div></div>', unsafe_allow_html=True)
         icons={"watch":"WATCH","buy":"LONG BIAS","sell":"SHORT BIAS","info":"OBSERVE"}
         colors={"watch":"#c9a84c","buy":"#1aff8a","sell":"#ff2d55","info":"#00c4ff"}
         for n in notes[:8]:
             cls=f"note-{n['type']}"; ic=icons.get(n['type'],"OBSERVE"); cl=colors.get(n['type'],"#c9a84c")
             mk_name=MARKETS.get(n['market'],{}).get('label',n['market'])
-            st.markdown(f'<div class="nigel-note {cls}"><div class="note-head" style="color:{cl};">{ic} - {n["market"]} {mk_name} <span style="color:#3a3550;float:right;">{n["time"]}</span></div><div class="note-body">{n["text"]}</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="nigel-note {cls}"><div class="note-head" style="color:{cl};">{ic} - {n["market"]} {mk_name} <span style="color:#3a3550;float:right;">{n["time"]}</span></div><div class="note-body">{_esc(n["text"])}</div></div>', unsafe_allow_html=True)
     with ni2:
-        st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.15em;color:#c9a84c;margin-bottom:16px;">MARKET OVERVIEW</div>', unsafe_allow_html=True)
         rows=[]
         for mk in SEL:
-            sig=market_signals[mk]; div=sig.get("divergence",{})
-            divs="Bull" if (div.get("bull_div") or div.get("macd_bull")) else "Bear" if (div.get("bear_div") or div.get("macd_bear")) else "--"
-            rows.append({"Contract":mk,"Name":MARKETS[mk]["label"],"Signal":sig["signal"],
-                "Conf":f"{sig['conf']}%","TQS":tqs_per_market.get(mk,0),
-                "Council":council_per_market[mk]["verdict"],"RSI":f"{sig['rsi']:.0f}",
-                "Mom":f"{sig['mom']:+.1f}%","Regime":sig['regime'].get('regime','?'),"Div":divs})
+            sig=market_signals[mk]; div=sig.get("divergence",{}); st_i=strategies_per_market.get(mk,{})
+            active=", ".join(st_i.get("active_signals",[])[:2]) or "--"
+            rows.append({"Contract":mk,"Futures Price":fmt_futures_dollar(mk,sig["price"]),"Signal":sig["signal"],
+                "Conf":f"{sig['conf']}%","TQS":tqs_per_market.get(mk,0),"Council":council_per_market[mk]["verdict"],
+                "RSI":f"{sig['rsi']:.0f}","Regime":sig['regime'].get('regime','?'),"Active Strategies":active})
         st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True)
 
 # ==============================================================
-# TAB 3 - TRADERS
+# TAB 4 - TRADERS
 # ==============================================================
-with t3:
+with t4:
     st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.15em;color:#c9a84c;margin-bottom:16px;">THE SIX DESKS</div>', unsafe_allow_html=True)
     if apex_status["locked"]:
-        st.markdown(f'<div class="shield-banner">APEX LOCK - {apex_status["lock_reason"]}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="shield-banner">APEX LOCK - {_esc(apex_status["lock_reason"])}</div>', unsafe_allow_html=True)
     sb_rows=[]
     for tr in TRADERS:
-        pnl=tr["balance"]-STARTING_BALANCE
-        wins=sum(1 for t in tr["trades"] if t.get("result")=="win"); tot=len(tr["trades"])
-        wr=round(wins/tot*100) if tot else 0
-        dd=round(max(0,(tr["peak"]-tr["balance"])/tr["peak"]*100),1) if tr["peak"] else 0
+        pnl=tr["balance"]-STARTING_BALANCE; wins=sum(1 for t in tr["trades"] if t.get("result")=="win"); tot=len(tr["trades"])
+        wr=round(wins/tot*100) if tot else 0; dd=round(max(0,(tr["peak"]-tr["balance"])/tr["peak"]*100),1) if tr["peak"] else 0
         streak=(f"+{tr.get('win_streak',0)}" if tr.get('win_streak',0)>0 else f"-{tr.get('loss_streak',0)}" if tr.get('loss_streak',0)>0 else "--")
         sb_rows.append({"Desk":tr["name"],"Fitness":tr.get("fitness",0),"Balance":tr["balance"],
-            "PnL":pnl,"Win%":wr,"Trades":tot,"DD%":dd,"Streak":streak,
-            "Best":tr.get("best_market") or "--","Status":"PAUSED" if tr.get("paused") else "ACTIVE"})
+            "PnL":pnl,"Win%":wr,"Trades":tot,"DD%":dd,"Streak":streak,"Best":tr.get("best_market") or "--",
+            "Status":"PAUSED" if tr.get("paused") else "ACTIVE"})
     sb_df=pd.DataFrame(sb_rows).sort_values("Fitness",ascending=False).reset_index(drop=True); sb_df.index+=1
     st.dataframe(sb_df.style
         .format({"Balance":"${:,.0f}","PnL":"${:+,.0f}","Win%":"{}%","DD%":"{}%","Fitness":"{:.1f}"})
@@ -1940,10 +2148,8 @@ with t3:
     tr_tabs=st.tabs([tr["name"] for tr in TRADERS])
     for tab,tr in zip(tr_tabs,TRADERS):
         with tab:
-            pnl=tr["balance"]-STARTING_BALANCE
-            wins=sum(1 for t in tr["trades"] if t.get("result")=="win"); tot=len(tr["trades"])
-            wr=round(wins/tot*100) if tot else 0
-            pnl_c="#1aff8a" if pnl>=0 else "#ff2d55"
+            pnl=tr["balance"]-STARTING_BALANCE; wins=sum(1 for t in tr["trades"] if t.get("result")=="win"); tot=len(tr["trades"])
+            wr=round(wins/tot*100) if tot else 0; pnl_c="#1aff8a" if pnl>=0 else "#ff2d55"
             fit=tr.get("fitness",0); fc="#1aff8a" if fit>=60 else "#c9a84c" if fit>=35 else "#ff2d55"
             paused_html='<div style="font-family:Cinzel,serif;font-size:10px;color:#ff9500;margin-top:10px;">PAUSED - APEX LOCK ACTIVE</div>' if tr.get("paused") else ""
             st.markdown(f"""
@@ -1966,15 +2172,14 @@ with t3:
                 mk=pos.get("market",""); sig=market_signals.get(mk,{}); cur=sig.get("price",pos.get("entry",0))
                 is_long=pos.get("dir")=="long"; cls2="pos-long" if is_long else "pos-short"
                 unr=(cur-pos["entry"])*pos["units"] if is_long else (pos["entry"]-cur)*pos["units"]
-                uc="#1aff8a" if unr>=0 else "#ff2d55"
-                ml=MARKETS.get(mk,{}).get("label",mk); trail=" TRAILED" if pos.get("trailed") else ""
-                st.markdown(f'<div class="{cls2} pos-panel">{"LONG" if is_long else "SHORT"} - {mk} {ml}{trail} - {pos.get("bars_in_trade",0)} bars<br>Entry {fmt_price(mk,pos["entry"])} - Now {fmt_price(mk,cur)} - SL <span style="color:#ff2d55;">{fmt_price(mk,pos["stop"])}</span> - TP <span style="color:#1aff8a;">{fmt_price(mk,pos["tp"])}</span><br>Unrealized <span style="color:{uc};font-weight:700;">${unr:+,.2f}</span></div>', unsafe_allow_html=True)
+                uc="#1aff8a" if unr>=0 else "#ff2d55"; ml=MARKETS.get(mk,{}).get("label",mk)
+                trail=" TRAILED" if pos.get("trailed") else ""
+                st.markdown(f'<div class="{cls2} pos-panel">{"LONG" if is_long else "SHORT"} - {mk} {ml}{trail} - {pos.get("bars_in_trade",0)} bars<br>Entry {fmt_futures_dollar(mk,pos["entry"])} - Now {fmt_futures_dollar(mk,cur)} - SL <span style="color:#ff2d55;">{fmt_futures_dollar(mk,pos["stop"])}</span> - TP <span style="color:#1aff8a;">{fmt_futures_dollar(mk,pos["tp"])}</span><br>Unrealized <span style="color:{uc};font-weight:700;">${unr:+,.2f}</span></div>', unsafe_allow_html=True)
             else:
                 if pos: tr["open_pos"]=None; state_save()
                 st.markdown('<div class="pos-flat pos-panel">No open position - scanning for entry</div>', unsafe_allow_html=True)
             recent=tr["trades"][-5:][::-1]
             if recent:
-                st.markdown('<div style="font-family:Cinzel,serif;font-size:9px;letter-spacing:.1em;color:#5a5570;margin:10px 0 4px;">RECENT TRADES</div>', unsafe_allow_html=True)
                 for t in recent:
                     is_w=t.get("result")=="win"; tc2="#1aff8a" if is_w else "#ff2d55"; pc="trade-pip-w" if is_w else "trade-pip-l"
                     mk2=t.get("market",""); ml2=MARKETS.get(mk2,{}).get("label",mk2)
@@ -1985,241 +2190,38 @@ with t3:
         if len(tr.get("history",[]))>1:
             fig_eq.add_trace(go.Scatter(y=tr["history"],mode="lines",name=tr["name"],line=dict(color=colors_tr.get(tr["name"],"#c9a84c"),width=2)))
     fig_eq.add_hline(y=STARTING_BALANCE,line=dict(color="#3a3550",width=1,dash="dot"))
-    fig_eq.update_layout(height=280,template="plotly_dark",paper_bgcolor="#05040a",plot_bgcolor="#09080f",
+    fig_eq.update_layout(height=260,template="plotly_dark",paper_bgcolor="#05040a",plot_bgcolor="#09080f",
         margin=dict(l=0,r=0,t=10,b=0),xaxis=dict(gridcolor="#12101e"),yaxis=dict(gridcolor="#12101e"),
         legend=dict(orientation="h",y=1.05,font=dict(family="JetBrains Mono",size=10)),
         font=dict(family="JetBrains Mono",size=10,color="#5a5570"))
     st.plotly_chart(fig_eq,use_container_width=True,key="eq_curves")
 
 # ==============================================================
-# TAB 4 - SIGNAL FEED
+# TAB 5 - SIGNAL FEED
 # ==============================================================
-with t4:
+with t5:
     sf1,sf2=st.columns([2,1])
     with sf1:
-        st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.15em;color:#c9a84c;margin-bottom:16px;">LIVE SIGNAL FEED</div>', unsafe_allow_html=True)
+        st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.15em;color:#c9a84c;margin-bottom:16px;">LIVE SIGNAL FEED - CORRECT FUTURES PRICES</div>', unsafe_allow_html=True)
         feed=st.session_state["signal_feed"]
         if not feed:
             st.markdown('<div class="nigel-note note-info"><div class="note-body">Awaiting signals above 55% confidence...</div></div>', unsafe_allow_html=True)
         for item in feed[:30]:
             s=item["signal"]; is_b="BUY" in s or s=="OVERSOLD"
             dc="#1aff8a" if is_b else "#ff2d55"; bc="badge-long" if is_b else "badge-short"
-            sfmt2=f'${item["stop"]:,.2f}' if item.get("stop") else "--"
-            tfmt2=f'${item["target"]:,.2f}' if item.get("target") else "--"
             tqs_v=item.get("tqs",0); tqs_c="#1aff8a" if tqs_v>=70 else "#c9a84c" if tqs_v>=45 else "#5a5570"
             csize=item.get("contract_size","")
+            fp=item.get("price_futures","--"); sl_f=item.get("sl_futures","--"); tp_f=item.get("tp_futures","--")
             div_parts=[]
             if item.get("div_bull"): div_parts.append('<span style="color:#1aff8a;font-size:9px;">RSI BULL</span>')
             if item.get("div_bear"): div_parts.append('<span style="color:#ff2d55;font-size:9px;">RSI BEAR</span>')
             if item.get("macd_bull"): div_parts.append('<span style="color:#1aff8a;font-size:9px;">MACD BULL</span>')
             if item.get("macd_bear"): div_parts.append('<span style="color:#ff2d55;font-size:9px;">MACD BEAR</span>')
             div_str=" ".join(div_parts)
+            strats=item.get("strategies",[]); orb_t=item.get("orb_type",""); gap_t=item.get("gap_type","")
+            strat_html=""
+            if orb_t and "ORB" in orb_t and "RANGE" not in orb_t: strat_html+=f'<span style="font-family:JetBrains Mono,monospace;font-size:8px;color:#a855f7;margin-left:4px;">{_esc(orb_t)}</span>'
+            if gap_t and "GAP" in gap_t and "NO" not in gap_t and "UNCLEAR" not in gap_t: strat_html+=f'<span style="font-family:JetBrains Mono,monospace;font-size:8px;color:var(--sapphire);margin-left:4px;">{_esc(gap_t)}</span>'
+            reasons_esc=_esc(" - ".join(item.get("reasons",[])[:2]))
             st.markdown(f"""
-            <div style="display:flex;gap:12px;align-items:flex-start;padding:9px 0;border-bottom:1px solid #12101e;">
-              <div style="font-family:JetBrains Mono,monospace;font-size:9px;color:#3a3550;min-width:58px;padding-top:2px;">{item['time']}</div>
-              <div style="flex:1;">
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;flex-wrap:wrap;">
-                  <span style="font-family:Cinzel,serif;font-weight:700;color:#fff;">{item['mk']}</span>
-                  <span class="badge {bc}">{s}</span>
-                  <span style="font-family:JetBrains Mono,monospace;font-size:10px;color:{dc};">{item['conf']}%</span>
-                  <span style="font-family:JetBrains Mono,monospace;font-size:9px;color:#3a3550;">{csize}</span>
-                  <span style="font-family:JetBrains Mono,monospace;font-size:9px;color:{tqs_c};">TQS {tqs_v}</span>
-                  {div_str}
-                </div>
-                <div style="font-family:JetBrains Mono,monospace;font-size:10px;color:#3a3550;">SL <span style="color:#ff2d55;">{sfmt2}</span> &nbsp; TP <span style="color:#1aff8a;">{tfmt2}</span></div>
-                <div style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:12px;color:#5a5570;">{" - ".join(item.get("reasons",[])[:2])}</div>
-              </div>
-            </div>""", unsafe_allow_html=True)
-    with sf2:
-        st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.15em;color:#c9a84c;margin-bottom:16px;">STATISTICS</div>', unsafe_allow_html=True)
-        if feed:
-            tot=len(feed); longs=sum(1 for x in feed if "BUY" in x["signal"] or x["signal"]=="OVERSOLD")
-            avg_conf=np.mean([x["conf"] for x in feed]); avg_tqs=np.mean([x.get("tqs",0) for x in feed])
-            st.markdown(f'<div class="panel panel-gold" style="margin-bottom:8px;"><div class="stat-val" style="color:#00c4ff;">{tot}</div><div class="stat-lbl">Total Signals</div></div>', unsafe_allow_html=True)
-            c1a,c1b=st.columns(2)
-            with c1a: st.markdown(f'<div class="panel panel-em"><div class="stat-val" style="color:#1aff8a;">{longs}</div><div class="stat-lbl">Long</div></div>', unsafe_allow_html=True)
-            with c1b: st.markdown(f'<div class="panel panel-cr"><div class="stat-val" style="color:#ff2d55;">{tot-longs}</div><div class="stat-lbl">Short</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="panel" style="margin-top:8px;"><div class="stat-val" style="color:#c9a84c;">{avg_conf:.0f}%</div><div class="stat-lbl">Avg Conf</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="panel" style="margin-top:8px;"><div class="stat-val" style="color:#c9a84c;">{avg_tqs:.0f}</div><div class="stat-lbl">Avg TQS</div></div>', unsafe_allow_html=True)
-
-# ==============================================================
-# TAB 5 - LIVE CHARTS
-# ==============================================================
-with t5:
-    st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.15em;color:#c9a84c;margin-bottom:16px;">LIVE CHARTS</div>', unsafe_allow_html=True)
-    mk=st.selectbox("Contract",SEL,key="charts_mk")
-    sig=market_signals[mk]; closes=raw_data[mk]["closes"]
-    if len(closes)>=30:
-        _,bb_u,bb_l,_=bb_bands(closes)
-        e8=ema_series(closes,8); e21=ema_series(closes,21)
-        e50=ema_series(closes,50) if len(closes)>=50 else ema_series(closes,21)
-        rsi_arr=rsi_full(closes,14)
-        macd_vals=[]
-        for i in range(26,len(closes)+1):
-            sl=closes[:i]; macd_vals.append(ema_series(sl,12)[-1]-ema_series(sl,26)[-1])
-        macd_sv=ema_series(macd_vals,9) if len(macd_vals)>=9 else macd_vals
-        x_vals=list(range(len(closes)))
-        fig=make_subplots(rows=4,cols=1,shared_xaxes=True,vertical_spacing=0.04,row_heights=[0.5,0.18,0.16,0.16])
-        fig.add_trace(go.Scatter(x=x_vals,y=closes,mode="lines",name="Price",line=dict(color="#fff",width=2)),row=1,col=1)
-        fig.add_trace(go.Scatter(x=x_vals,y=e8,mode="lines",name="EMA8",line=dict(color="#c9a84c",width=1,dash="dot")),row=1,col=1)
-        fig.add_trace(go.Scatter(x=x_vals,y=e21,mode="lines",name="EMA21",line=dict(color="#1aff8a",width=1,dash="dot")),row=1,col=1)
-        fig.add_trace(go.Scatter(x=x_vals,y=e50,mode="lines",name="EMA50",line=dict(color="#ff2d55",width=1,dash="dot")),row=1,col=1)
-        bx=list(range(len(bb_u)))
-        fig.add_trace(go.Scatter(x=bx,y=bb_u,mode="lines",name="BB Upper",line=dict(color="rgba(201,168,76,0.3)",width=1)),row=1,col=1)
-        fig.add_trace(go.Scatter(x=bx,y=bb_l,mode="lines",name="BB Lower",fill='tonexty',fillcolor="rgba(201,168,76,0.04)",line=dict(color="rgba(201,168,76,0.3)",width=1)),row=1,col=1)
-        if sig.get("stop"): fig.add_hline(y=sig["stop"],line=dict(color="#ff2d55",width=1,dash="dash"),annotation_text="SL",row=1,col=1)
-        if sig.get("target"): fig.add_hline(y=sig["target"],line=dict(color="#1aff8a",width=1,dash="dash"),annotation_text="TP",row=1,col=1)
-        if macd_vals:
-            mx=list(range(26,26+len(macd_vals))); mc_c=["#1aff8a" if v>=0 else "#ff2d55" for v in macd_vals]
-            fig.add_trace(go.Bar(x=mx,y=macd_vals,name="MACD",marker=dict(color=mc_c,opacity=0.4)),row=2,col=1)
-            sx=list(range(26,26+len(macd_sv)))
-            fig.add_trace(go.Scatter(x=sx,y=macd_sv,mode="lines",name="Signal",line=dict(color="#00c4ff",width=1)),row=2,col=1)
-        rsi_clean=[v if v is not None else 50 for v in rsi_arr]
-        fig.add_trace(go.Scatter(x=x_vals,y=rsi_clean,mode="lines",name="RSI",line=dict(color="#a855f7",width=2)),row=3,col=1)
-        fig.add_hline(y=70,line=dict(color="#ff2d55",width=1,dash="dot"),row=3,col=1)
-        fig.add_hline(y=30,line=dict(color="#1aff8a",width=1,dash="dot"),row=3,col=1)
-        bar_changes=[abs((closes[i]-closes[i-1])/closes[i-1]*100) if i>0 else 0 for i in range(len(closes))]
-        fig.add_trace(go.Bar(x=x_vals,y=bar_changes,name="Delta%",marker=dict(color="#c9a84c",opacity=0.4)),row=4,col=1)
-        fig.update_layout(height=680,template="plotly_dark",paper_bgcolor="#05040a",plot_bgcolor="#09080f",
-            margin=dict(l=0,r=0,t=10,b=0),showlegend=True,
-            legend=dict(orientation="h",y=1.05,font=dict(family="JetBrains Mono",size=9)),
-            font=dict(family="JetBrains Mono",size=10,color="#5a5570"))
-        for i in range(1,5): fig.update_xaxes(gridcolor="#12101e",row=i,col=1); fig.update_yaxes(gridcolor="#12101e",row=i,col=1)
-        st.plotly_chart(fig,use_container_width=True,key=f"chart_{mk}")
-    else: st.warning(f"Not enough data for {mk}")
-
-# ==============================================================
-# TAB 6 - RULES ENGINE
-# ==============================================================
-with t6:
-    st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.15em;color:#c9a84c;margin-bottom:16px;">RULES ENGINE</div>', unsafe_allow_html=True)
-    qp1,qp2,qp3,qp4,qp5=st.columns(5)
-    with qp1:
-        if st.button("Trend-Only"):
-            st.session_state["rule_set"].append({"type":"trend_only","value":1,"active":True,"name":"Trend Only","desc":"Only trade with EMA stack alignment"})
-            state_save(); st.rerun()
-    with qp2:
-        if st.button("RTH Only"):
-            st.session_state["rule_set"].append({"type":"no_rth","value":0,"active":True,"name":"RTH Only","desc":"Block trades outside 9:30am-4pm ET regular trading hours"})
-            state_save(); st.rerun()
-    with qp3:
-        if st.button("Skip Lunch"):
-            st.session_state["rule_set"].append({"type":"no_trade_hours","h_from":12,"h_to":13,"value":0,"active":True,"name":"Lunch Lockout","desc":"No trades 12:00-13:00 ET - low volume chop"})
-            state_save(); st.rerun()
-    with qp4:
-        if st.button("Cap ATR 3%"):
-            st.session_state["rule_set"].append({"type":"atr_max","value":3.0,"active":True,"name":"ATR Cap","desc":"Block when ATR% > 3% - too volatile for clean entries"})
-            state_save(); st.rerun()
-    with qp5:
-        if st.button("Apex $200 Guard"):
-            st.session_state["rule_set"].append({"type":"apex_daily_guard","value":200,"active":True,"name":"Apex Guard","desc":"Block when less than $200 daily headroom left"})
-            state_save(); st.rerun()
-    st.divider()
-    rl1,rl2=st.columns([2,1])
-    with rl1:
-        if not st.session_state["rule_set"]:
-            st.markdown('<div style="font-family:Cormorant Garamond,serif;font-style:italic;color:#5a5570;">No rules. Desks trade on raw signal alone.</div>', unsafe_allow_html=True)
-        for i,rule in enumerate(st.session_state["rule_set"]):
-            active=rule.get("active",True); rc2="rule-on" if active else "rule-off"
-            bc2="badge-long" if active else "badge-hold"; al2="ACTIVE" if active else "OFF"
-            cols=st.columns([5,1,1])
-            with cols[0]: st.markdown(f'<div class="rule-row {rc2}"><div><div class="rule-name">{rule.get("name",rule.get("type",""))}</div><div class="rule-desc">{rule.get("desc","")}</div></div><span class="badge {bc2}">{al2}</span></div>', unsafe_allow_html=True)
-            with cols[1]:
-                if st.button("Toggle",key=f"tog_{i}"): st.session_state["rule_set"][i]["active"]=not active; state_save(); st.rerun()
-            with cols[2]:
-                if st.button("X",key=f"del_{i}"): st.session_state["rule_set"].pop(i); state_save(); st.rerun()
-    with rl2:
-        for mk,sig in market_signals.items():
-            blocked=sig.get("rule_block",False); ic="#ff2d55" if blocked else "#1aff8a"; lbl="BLOCKED" if blocked else "OPEN"
-            st.markdown(f'<div style="display:flex;justify-content:space-between;padding:5px 12px;background:#0d0c16;border:1px solid #12101e;border-left:2px solid {ic};border-radius:1px;margin-bottom:4px;font-family:JetBrains Mono,monospace;font-size:11px;"><span style="color:#fff;">{mk}</span><span style="color:{ic};font-weight:600;">{lbl}</span></div>', unsafe_allow_html=True)
-
-# ==============================================================
-# TAB 7 - BACKTEST
-# ==============================================================
-with t7:
-    st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.15em;color:#c9a84c;margin-bottom:8px;">BACKTEST - APEX RULES APPLIED</div>', unsafe_allow_html=True)
-    bc=st.columns(5)
-    with bc[0]: bt_mk=st.selectbox("Contract",SEL,key="bt_mk")
-    with bc[1]: bt_rr=st.slider("RR",1.0,5.0,2.0,0.25,key="bt_rr")
-    with bc[2]: bt_risk=st.slider("Risk %",0.25,2.0,1.0,0.25,key="bt_risk")/100
-    with bc[3]: bt_rules=st.checkbox("Apply rules",value=True,key="bt_rules")
-    with bc[4]: run_bt=st.button("RUN",type="primary",key="bt_run")
-    if run_bt:
-        with st.spinner("Running backtest..."):
-            result=run_backtest_nigel(raw_data[bt_mk]["closes"],bt_mk,bt_risk,bt_rr,
-                                      st.session_state["rule_set"] if bt_rules else [])
-            st.session_state["bt_cache"][f"{bt_mk}_{bt_rr}_{bt_risk}"]=result; state_save()
-    if st.session_state["bt_cache"]:
-        result=list(st.session_state["bt_cache"].values())[-1]
-        if "error" in result: st.error(result["error"])
-        else:
-            r1=st.columns(5); rc2="#1aff8a" if result["return_pct"]>0 else "#ff2d55"
-            with r1[0]: st.markdown(f'<div class="panel panel-gold"><div class="stat-val" style="color:{rc2};">${result["total_pnl"]:+,.0f}</div><div class="stat-lbl">Total P&L</div></div>', unsafe_allow_html=True)
-            with r1[1]: st.markdown(f'<div class="panel"><div class="stat-val" style="color:{rc2};">{result["return_pct"]:+.1f}%</div><div class="stat-lbl">Return</div></div>', unsafe_allow_html=True)
-            with r1[2]: st.markdown(f'<div class="panel"><div class="stat-val">{result["win_rate"]:.0f}%</div><div class="stat-lbl">Win Rate</div></div>', unsafe_allow_html=True)
-            with r1[3]: st.markdown(f'<div class="panel"><div class="stat-val">{result["pf"]:.2f}</div><div class="stat-lbl">Profit Factor</div></div>', unsafe_allow_html=True)
-            with r1[4]: st.markdown(f'<div class="panel"><div class="stat-val" style="color:#ff2d55;">{result["max_dd"]:.1f}%</div><div class="stat-lbl">Max DD</div></div>', unsafe_allow_html=True)
-            fig_bt=go.Figure()
-            fig_bt.add_trace(go.Scatter(y=result["equity"],mode="lines",line=dict(color="#c9a84c",width=2),fill='tozeroy',fillcolor="rgba(201,168,76,0.04)"))
-            fig_bt.add_hline(y=result["start"],line=dict(color="#3a3550",width=1,dash="dot"))
-            fig_bt.update_layout(height=260,template="plotly_dark",paper_bgcolor="#05040a",plot_bgcolor="#09080f",
-                margin=dict(l=0,r=0,t=10,b=0),showlegend=False,
-                xaxis=dict(gridcolor="#12101e"),yaxis=dict(gridcolor="#12101e"),
-                font=dict(family="JetBrains Mono",size=10,color="#5a5570"))
-            st.plotly_chart(fig_bt,use_container_width=True,key="bt_chart")
-            with st.expander(f"Trade Log ({result['total_trades']} trades)"):
-                if isinstance(result["trades"],pd.DataFrame): st.dataframe(result["trades"],use_container_width=True,hide_index=True)
-
-# ==============================================================
-# TAB 8 - AI ANALYST
-# ==============================================================
-with t8:
-    st.markdown('<div style="font-family:Cinzel,serif;font-size:10px;letter-spacing:.15em;color:#c9a84c;margin-bottom:8px;">AI ANALYST - APEX NINJATRADER AWARE</div>', unsafe_allow_html=True)
-    if not CLKEY:
-        st.warning("Add a Claude API key in the sidebar to enable the AI Analyst.")
-    else:
-        ac1,ac2,ac3,ac4=st.columns(4)
-        question=None
-        with ac1:
-            if st.button("Full Brief"): question="Give me a complete brief on all contracts. Include specific point targets, contract sizing, and stop levels for a $50K Apex account with $1K daily loss limit. Tell me which contract gives me the best shot at $1,000 today."
-        with ac2:
-            if st.button("Best Trade"): question="What is the single best NinjaTrader futures trade right now? Give exact entry, stop in points, target in points, which contract, how many contracts at 1% risk, and estimated dollar profit if it hits."
-        with ac3:
-            if st.button("Risk Check"): question="Audit my Apex account risk. Check daily P&L, trailing drawdown, and whether I should be adding positions or calling it a day."
-        with ac4:
-            if st.button("$1K Setup"): question="Walk me through the exact best setup to make $1,000 today with minimum risk. Which contract, how many, where to enter, where to stop, where to take profit. Be specific with numbers."
-        custom=st.text_area("Custom question:",key="ai_q",height=80)
-        if st.button("Ask Nigel",type="primary"): question=custom or question
-        if question:
-            with st.spinner("Thinking..."):
-                ctx=build_ai_context(market_signals,live_prices,diag,apex_status)
-                resp,err=call_claude(f"Context:\n{ctx}\n\nQuestion: {question}",AI_ANALYST_SYSTEM,CLKEY,1200)
-                if resp:
-                    st.session_state["ai_feed"].insert(0,{"q":question,"a":resp,"time":datetime.now().strftime("%H:%M:%S")})
-                    st.session_state["ai_feed"]=st.session_state["ai_feed"][:10]; state_save()
-                if err: st.error(err)
-        for entry in st.session_state["ai_feed"][:5]:
-            st.markdown(f'<div class="ai-response" style="margin-bottom:12px;"><div class="ai-header">NIGEL - {entry["time"]}</div><div style="font-family:Cormorant Garamond,serif;font-style:italic;color:#5a5570;font-size:13px;margin-bottom:10px;">Q: {entry["q"]}</div><div>{entry["a"].replace(chr(10),"<br>")}</div></div>', unsafe_allow_html=True)
-
-# ==============================================================
-# ALWAYS-ON BAR + AUTO-REFRESH
-# ==============================================================
-state_kb=PERSIST_PATH.stat().st_size/1024 if PERSIST_PATH.exists() else 0
-secs_til=max(0,int(st.session_state["refresh_interval"]-(time.time()-st.session_state["last_refresh"])))
-if apex_status["locked"]: apex_bar_color="#ff2d55"; apex_bar_text=f"LOCKED - {apex_status['lock_reason'][:50]}"
-elif apex_status["warnings"]: apex_bar_color="#ff9500"; apex_bar_text=f"Daily headroom ${APEX_CONFIG['daily_loss_limit']+apex_status['daily_pnl']:,.0f}"
-else: apex_bar_color="#1aff8a"; apex_bar_text=f"APEX CLEAR - ${APEX_CONFIG['daily_loss_limit']+apex_status['daily_pnl']:,.0f} daily left"
-sessions_str=" | ".join([s for s,_ in sessions_now])
-st.markdown(f"""
-<div class="always-on-bar">
-  <div><span class="live-dot"></span>NIGEL v5.4 APEX NINJATRADER - {sessions_str}</div>
-  <div style="color:{apex_bar_color};"><span class="apex-dot" style="background:{apex_bar_color};"></span>{apex_bar_text}</div>
-  <div>State {state_kb:.1f} KB - Refresh {secs_til}s</div>
-</div>
-<div style="height:44px;"></div>
-""", unsafe_allow_html=True)
-
-if st.session_state["always_on"]:
-    remaining=st.session_state["refresh_interval"]-(time.time()-st.session_state["last_refresh"])
-    if remaining<=0: st.cache_data.clear(); state_save(); time.sleep(1); st.rerun()
-    else: time.sleep(min(remaining,5)); st.rerun()
+            <div style="display:flex;gap:12
